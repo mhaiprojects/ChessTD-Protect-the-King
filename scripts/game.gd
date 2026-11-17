@@ -248,7 +248,7 @@ func start_wave() -> bool:
 	wave += 1
 	spawn_types = M.wave_spawn_list(wave)
 	spawn_left = spawn_types.size()
-	wave_hp = 18.0 * pow(1.25, wave - 1)
+	wave_hp = 18.0 * M.hp_scale_for_wave(wave)
 	spawn_timer = 0.0
 	phase = Phase.WAVE
 	_msg("Wave %d: %d mobs incoming!" % [wave, spawn_left])
@@ -313,7 +313,7 @@ func step(dt: float) -> void:
 	_update_towers(dt)
 	mobs = mobs.filter(func(m): return m.alive)
 	if phase == Phase.WAVE and spawn_left == 0 and mobs.is_empty():
-		var bonus := 15 + 5 * wave
+		var bonus := M.wave_clear_bonus(wave)
 		gold += bonus
 		if wave >= MAX_WAVES:
 			phase = Phase.VICTORY

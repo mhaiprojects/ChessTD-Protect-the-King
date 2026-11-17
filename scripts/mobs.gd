@@ -12,16 +12,31 @@ const COLORS := {
 }
 
 
+## Gentle HP ramp: ~6% per wave, no post-wave-5 jump.
+static func hp_scale_for_wave(wave: int) -> float:
+	var w: float = maxf(1.0, float(wave))
+	return 1.0 + 0.06 * (w - 1.0)
+
+
+## Mob count grows slowly (6 at wave 1, +0–1 most waves).
+static func wave_mob_count(wave: int) -> int:
+	return 6 + int((maxi(wave, 1) - 1) * 0.65)
+
+
+static func wave_clear_bonus(wave: int) -> int:
+	return 14 + 3 * wave + maxi(0, wave - 3)
+
+
 static func mob_stats(type: int, wave: int) -> Dictionary:
 	var w: float = maxf(1.0, float(wave))
-	var hp_scale: float = 1.0 + 0.08 * (w - 1.0)
+	var hp_scale: float = hp_scale_for_wave(wave)
 	match type:
 		GRUNT:
 			return {
 				"hp": 18.0 * hp_scale,
 				"speed": 1.0 + 0.04 * w,
 				"damage": 3.0 + 0.35 * w,
-				"reward": 5 + int(w),
+				"reward": 6 + int(w * 1.2),
 				"wall_mult": 1.0,
 				"prefers_walls": false,
 			}
@@ -30,7 +45,7 @@ static func mob_stats(type: int, wave: int) -> Dictionary:
 				"hp": 10.0 * hp_scale,
 				"speed": 1.65 + 0.05 * w,
 				"damage": 2.0 + 0.2 * w,
-				"reward": 4 + int(w * 0.8),
+				"reward": 5 + int(w),
 				"wall_mult": 1.0,
 				"prefers_walls": false,
 			}
@@ -39,7 +54,7 @@ static func mob_stats(type: int, wave: int) -> Dictionary:
 				"hp": 38.0 * hp_scale,
 				"speed": 0.72 + 0.02 * w,
 				"damage": 7.0 + 0.55 * w,
-				"reward": 10 + int(w * 1.5),
+				"reward": 11 + int(w * 1.3),
 				"wall_mult": 1.6,
 				"prefers_walls": false,
 			}
@@ -48,7 +63,7 @@ static func mob_stats(type: int, wave: int) -> Dictionary:
 				"hp": 14.0 * hp_scale,
 				"speed": 0.95 + 0.03 * w,
 				"damage": 2.5 + 0.25 * w,
-				"reward": 6 + int(w),
+				"reward": 7 + int(w),
 				"wall_mult": 2.2,
 				"prefers_walls": true,
 			}
@@ -57,20 +72,20 @@ static func mob_stats(type: int, wave: int) -> Dictionary:
 
 ## Ordered list of mob types spawned for a given wave (mixed composition).
 static func wave_spawn_list(wave: int) -> Array:
-	var n: int = 4 + wave * 2
+	var n: int = wave_mob_count(wave)
 	var list: Array = []
 	list.resize(n)
 	list.fill(GRUNT)
-	var runners: int = mini(n / 3, 1 + wave / 2)
+	var runners: int = clampi(1 + (wave - 1) / 2, 1, maxi(1, n / 3))
 	for i in runners:
 		var idx := int((i + 1) * float(n) / float(runners + 1))
 		list[idx] = RUNNER
-	if wave >= 3:
-		var brutes: int = mini(1 + (wave - 3) / 3, n / 4)
+	if wave >= 2:
+		var brutes: int = clampi((wave - 1) / 3, 0, maxi(1, n / 4))
 		for i in brutes:
-			list[n - 1 - i * 2] = BRUTE
-	if wave >= 4:
-		var sappers: int = mini(1 + (wave - 4) / 4, n / 5)
+			list[mini(n - 1 - i, n - 1)] = BRUTE
+	if wave >= 3:
+		var sappers: int = clampi((wave - 2) / 3, 0, maxi(1, n / 5))
 		for i in sappers:
 			list[mini(n / 2 + i, n - 1)] = SAPPER
 	return list

@@ -57,6 +57,8 @@ func _run() -> void:
 	test_placement()
 	print("== Mob types ==")
 	test_mob_types()
+	print("== Difficulty curve ==")
+	test_difficulty_curve()
 	print("== Waves, mob movement & pathfinding ==")
 	test_wave_and_movement()
 	print("== Mob tile occupation ==")
@@ -153,6 +155,18 @@ func test_mob_types() -> void:
 	g.free()
 
 
+func test_difficulty_curve() -> void:
+	for w in 9:
+		var h0: float = M.mob_stats(M.GRUNT, w).hp
+		var h1: float = M.mob_stats(M.GRUNT, w + 1).hp
+		var jump: float = (h1 - h0) / h0
+		check(jump < 0.12, "Wave %d->%d Grunt HP rise %.1f%% stays gentle" % [w, w + 1, jump * 100.0])
+	var c5: int = M.wave_mob_count(5)
+	var c6: int = M.wave_mob_count(6)
+	check(c6 - c5 <= 1, "Mob count after wave 5 rises by at most 1 (%d -> %d)" % [c5, c6])
+	check(M.hp_scale_for_wave(6) / M.hp_scale_for_wave(5) < 1.12, "No HP cliff between waves 5 and 6")
+
+
 func test_placement() -> void:
 	var g = new_game()
 	check(g.phase == g.Phase.SETUP and g.gold == 200, "Starts in setup with 200 gold")
@@ -181,7 +195,8 @@ func test_wave_and_movement() -> void:
 	g.place(P.KING, Vector2i(3, 11))
 	g.start_wave()
 	run_for(g, 1.0)
-	check(g.mobs.size() >= 1 and g.spawn_left == 4 + 2 - g.mobs.size(), "Mobs spawn at top during wave")
+	var expected: int = M.wave_mob_count(1)
+	check(g.mobs.size() >= 1 and g.spawn_left == expected - g.mobs.size(), "Mobs spawn at top during wave")
 	var m = g.mobs[0]
 	var y0: float = m.pos.y
 	run_for(g, 2.0)
@@ -373,7 +388,8 @@ func test_full_wave() -> void:
 		var kills0: int = g.kills
 		run_for(g, 180.0, 0.05, func(): return g.phase != g.Phase.WAVE)
 		check(g.phase == g.Phase.BETWEEN, "Wave %d cleared (phase=%s, King hp %.0f)" % [g.wave, g.PHASE_NAMES[g.phase], g.pieces[g.king_cell].hp if g.has_king() else 0.0])
-		check(g.kills - kills0 == 4 + 2 * g.wave, "All %d mobs of wave %d killed" % [4 + 2 * g.wave, g.wave])
+		var n: int = M.wave_mob_count(g.wave)
+		check(g.kills - kills0 == n, "All %d mobs of wave %d killed" % [n, g.wave])
 		# spend gold between waves: round-robin upgrades, cheapest first
 		var spent := true
 		while spent:

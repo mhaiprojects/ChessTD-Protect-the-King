@@ -1,11 +1,15 @@
 extends CanvasLayer
-## Side panel HUD built in code: stats, build palette, wave/upgrade/sell controls.
+## HUD: responsive side panel + overlays; notifies Game to fit the board in the left pane.
 
 const P := preload("res://scripts/pieces.gd")
 const HS := preload("res://scripts/highscores.gd")
 const DA := preload("res://scripts/draw_art.gd")
 
 var game
+var layout_root: Control
+var board_host: Control
+var hud_scroll: ScrollContainer
+var hud_panel: PanelContainer
 var lbl_stats: Label
 var lbl_sel: Label
 var lbl_msg: Label
@@ -27,14 +31,43 @@ var _ui_styles: Dictionary = {}
 func _ready() -> void:
 	game = get_parent().get_node("Game")
 	_ui_styles = DA.make_ui_styles()
-	var panel := PanelContainer.new()
-	panel.position = Vector2(480, 16)
-	panel.custom_minimum_size = Vector2(264, 672)
-	panel.add_theme_stylebox_override("panel", _ui_styles.panel)
-	add_child(panel)
+	_build_responsive_shell()
+	call_deferred("_refresh_layout")
+
+
+func _build_responsive_shell() -> void:
+	layout_root = Control.new()
+	layout_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layout_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(layout_root)
+
+	var hbox := HBoxContainer.new()
+	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hbox.add_theme_constant_override("separation", 8)
+	layout_root.add_child(hbox)
+
+	board_host = Control.new()
+	board_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	board_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	board_host.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	hbox.add_child(board_host)
+
+	hud_scroll = ScrollContainer.new()
+	hud_scroll.custom_minimum_size = Vector2(228, 0)
+	hud_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	hud_scroll.size_flags_horizontal = Control.SIZE_SHRINK_END
+	hud_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	hbox.add_child(hud_scroll)
+
+	hud_panel = PanelContainer.new()
+	hud_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hud_panel.custom_minimum_size = Vector2(228, 0)
+	hud_panel.add_theme_stylebox_override("panel", _ui_styles.panel)
+	hud_scroll.add_child(hud_panel)
+
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
-	panel.add_child(v)
+	hud_panel.add_child(v)
 
 	v.add_child(_label("CHESS TOWER DEFENSE", 18, true))
 	lbl_stats = _label("", 15)
@@ -77,9 +110,6 @@ func _ready() -> void:
 	lbl_msg = _label("", 13)
 	lbl_msg.add_theme_color_override("font_color", Color(0.98, 0.86, 0.52))
 	v.add_child(lbl_msg)
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	v.add_child(spacer)
 	v.add_child(
 		_label(
 			"Left-click: place / select   Right-click/Esc: cancel\nAttack squares highlight in red.",
@@ -93,15 +123,72 @@ func _ready() -> void:
 	btn_restart.pressed.connect(_on_restart)
 	v.add_child(btn_restart)
 
-	overlay_final = _overlay_panel(Vector2(56, 420), Vector2(368, 200))
+	overlay_final = _overlay_panel()
 	overlay_final.z_index = 5
 	lbl_final_body = _overlay_label(overlay_final)
-	overlay_leaderboard = _overlay_panel(Vector2(24, 48), Vector2(432, 560))
+	overlay_leaderboard = _overlay_panel()
 	overlay_leaderboard.z_index = 4
 	lbl_leaderboard_body = _overlay_label(overlay_leaderboard)
 	var lb_close := _button("Close [L / Esc]")
 	lb_close.pressed.connect(func(): overlay_leaderboard.visible = false)
 	overlay_leaderboard.get_child(0).add_child(lb_close)
+
+	get_viewport().size_changed.connect(_refresh_layout)
+
+
+func _refresh_layout() -> void:
+	if layout_root == null or board_host == null or game == null:
+		return
+	call_deferred("_apply_layout")
+
+
+func _apply_layout() -> void:
+	if layout_root == null or board_host == null or game == null:
+		return
+	var vp := get_viewport().get_visible_rect()
+	layout_root.set_deferred("size", vp.size)
+	var board_rect := board_host.get_global_rect()
+	if board_rect.size.x < 1.0:
+		board_rect = Rect2(Vector2.ZERO, Vector2(vp.size.x - hud_scroll.size.x, vp.size.y))
+	game.fit_to_rect(board_rect)
+	_position_overlays(vp)
+
+
+func apply_layout_now() -> void:
+	if layout_root == null:
+		return
+	var vp := get_viewport().get_visible_rect()
+	layout_root.size = vp.size
+	layout_root.get_parent()  # flush
+	var board_rect := board_host.get_global_rect()
+	game.fit_to_rect(board_rect)
+	_position_overlays(vp)
+
+
+func _position_overlays(vp: Rect2) -> void:
+	var board_r: Rect2 = game.board_viewport_rect()
+	var final_sz := Vector2(minf(400, vp.size.x * 0.55), minf(220, vp.size.y * 0.35))
+	overlay_final.custom_minimum_size = final_sz
+	overlay_final.size = final_sz
+	overlay_final.position = board_r.position + (board_r.size - final_sz) * 0.5
+	var lb_sz := Vector2(minf(480, vp.size.x * 0.82), minf(560, vp.size.y * 0.88))
+	overlay_leaderboard.custom_minimum_size = lb_sz
+	overlay_leaderboard.size = lb_sz
+	overlay_leaderboard.position = (vp.size - lb_sz) * 0.5
+
+
+func _controls_inside_viewport() -> bool:
+	var vp := get_viewport().get_visible_rect()
+	if hud_scroll == null:
+		return true
+	var hud_r := hud_scroll.get_global_rect()
+	if hud_r.position.y < -1.0:
+		return false
+	if hud_r.end.y > vp.size.y + 2.0:
+		return false
+	if hud_r.end.x > vp.size.x + 2.0:
+		return false
+	return true
 
 
 func _label(text: String, size: int, title: bool = false, col: Color = DA.UI_TEXT) -> Label:
@@ -109,16 +196,15 @@ func _label(text: String, size: int, title: bool = false, col: Color = DA.UI_TEX
 	l.text = text
 	l.add_theme_font_size_override("font_size", size)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.custom_minimum_size.x = 232
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	l.add_theme_color_override("font_color", DA.UI_ACCENT if title else col)
 	return l
 
 
-func _overlay_panel(pos: Vector2, size: Vector2) -> PanelContainer:
+func _overlay_panel() -> PanelContainer:
 	var p := PanelContainer.new()
 	p.visible = false
-	p.position = pos
-	p.custom_minimum_size = size
+	p.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(p)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)

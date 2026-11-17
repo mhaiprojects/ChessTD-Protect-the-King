@@ -10,8 +10,10 @@ const HS := preload("res://scripts/highscores.gd")
 
 const COLS := 8
 const ROWS := 12
-const TILE := 56.0
-const ORIGIN := Vector2(16, 16)
+const BASE_TILE := 56.0
+const BASE_MARGIN := 16.0
+var tile_size := BASE_TILE
+var board_origin := Vector2(BASE_MARGIN, BASE_MARGIN)
 const PLAYER_MIN_ROW := 3          # rows 0..2 = enemy spawn zone, 3..11 = player side
 const MAX_WAVES := 20
 const START_GOLD := 200
@@ -156,12 +158,32 @@ func get_piece(c: Vector2i):
 
 
 func cell_center(c: Vector2) -> Vector2:
-	return ORIGIN + (c + Vector2(0.5, 0.5)) * TILE
+	return board_origin + (c + Vector2(0.5, 0.5)) * tile_size
 
 
 func world_to_cell(p: Vector2) -> Vector2i:
-	var q := (p - ORIGIN) / TILE
+	var q := (p - board_origin) / tile_size
 	return Vector2i(floori(q.x), floori(q.y))
+
+
+## Fit the board grid into `area` (viewport/canvas coordinates). Keeps mouse mapping aligned with drawing.
+func fit_to_rect(area: Rect2) -> void:
+	if area.size.x < 32.0 or area.size.y < 32.0:
+		return
+	var pad := 8.0
+	var inner := Rect2(area.position + Vector2(pad, pad), area.size - Vector2(pad * 2.0, pad * 2.0))
+	var margin := maxf(8.0, BASE_MARGIN * 0.5)
+	var tw := (inner.size.x - margin * 2.0) / float(COLS)
+	var th := (inner.size.y - margin * 2.0) / float(ROWS)
+	tile_size = maxf(20.0, minf(tw, th))
+	var grid := Vector2(COLS * tile_size, ROWS * tile_size)
+	board_origin = inner.position + (inner.size - grid) * 0.5
+	queue_redraw()
+
+
+func board_viewport_rect() -> Rect2:
+	var grid := Vector2(COLS * tile_size, ROWS * tile_size)
+	return Rect2(board_origin, grid).grow(BASE_MARGIN * 0.75)
 
 
 func _paths_exist_to_goal(goal: Vector2i, extra: Array) -> bool:
@@ -689,11 +711,15 @@ func _update_towers(dt: float) -> void:
 
 # ---------------------------------------------------------------- input
 
+func _pointer_canvas_pos(event: InputEventMouse) -> Vector2:
+	return get_viewport().get_canvas_transform().affine_inverse() * event.position
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
-		hover = world_to_cell(to_local(event.position))
+		hover = world_to_cell(_pointer_canvas_pos(event))
 	elif event is InputEventMouseButton and event.pressed:
-		handle_click(world_to_cell(to_local(event.position)), event.button_index)
+		handle_click(world_to_cell(_pointer_canvas_pos(event)), event.button_index)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7:
@@ -735,26 +761,27 @@ func handle_click(c: Vector2i, button: int) -> void:
 
 func _draw() -> void:
 	var font := ThemeDB.fallback_font
-	var board := Rect2(ORIGIN, Vector2(COLS, ROWS) * TILE)
+	var board := Rect2(board_origin, Vector2(COLS, ROWS) * tile_size)
 	draw_rect(board.grow(6), DA.BG_DARK)
 	for y in ROWS:
 		for x in COLS:
-			var r := Rect2(ORIGIN + Vector2(x, y) * TILE, Vector2(TILE, TILE))
+			var r := Rect2(board_origin + Vector2(x, y) * tile_size, Vector2(tile_size, tile_size))
 			var light: bool = (x + y) % 2 == 0
 			var col: Color = DA.SQ_LIGHT if light else DA.SQ_DARK
 			if y < PLAYER_MIN_ROW:
 				col = DA.SPAWN_LIGHT if light else DA.SPAWN_DARK
 			draw_rect(r, col)
 			draw_rect(r.grow(-1), DA.GRID_LINE, false, 1.0)
-	var spawn_r := Rect2(ORIGIN, Vector2(COLS * TILE, PLAYER_MIN_ROW * TILE))
+	var spawn_r := Rect2(board_origin, Vector2(COLS * tile_size, PLAYER_MIN_ROW * tile_size))
 	for i in range(COLS * 2 + PLAYER_MIN_ROW * 2):
 		var t: float = float(i) * 14.0
 		draw_line(spawn_r.position + Vector2(t, 0), spawn_r.position + Vector2(t - 28, spawn_r.size.y), Color(0.55, 0.15, 0.15, 0.12), 1.0)
 	draw_rect(board, DA.FRAME_LINE, false, 3.0)
-	var div_y := ORIGIN + Vector2(0, PLAYER_MIN_ROW * TILE)
-	draw_line(div_y, div_y + Vector2(COLS * TILE, 0), DA.SPAWN_DIVIDER, 3.0)
+	var div_y := board_origin + Vector2(0, PLAYER_MIN_ROW * tile_size)
+	draw_line(div_y, div_y + Vector2(COLS * tile_size, 0), DA.SPAWN_DIVIDER, 3.0)
+	var lbl_scale := maxf(0.65, tile_size / BASE_TILE)
 	draw_string(
-		font, ORIGIN + Vector2(6, 14), "SPAWN", HORIZONTAL_ALIGNMENT_LEFT, 80, 11,
+		font, board_origin + Vector2(6, 14 * lbl_scale), "SPAWN", HORIZONTAL_ALIGNMENT_LEFT, 80, int(11 * lbl_scale),
 		Color(0.95, 0.55, 0.55, 0.75)
 	)
 
@@ -763,7 +790,7 @@ func _draw() -> void:
 		hl = attack_tiles_for(selected)
 	elif build_type >= 0 and in_bounds(hover):
 		var ok: String = can_place(build_type, hover)
-		var tile_r := Rect2(ORIGIN + Vector2(hover) * TILE, Vector2(TILE, TILE)).grow(-2)
+		var tile_r := Rect2(board_origin + Vector2(hover) * tile_size, Vector2(tile_size, tile_size)).grow(-2)
 		var hover_col := DA.HOVER_OK if ok == "" else DA.HOVER_BAD
 		draw_rect(tile_r, hover_col)
 		draw_rect(tile_r, hover_col.lightened(0.2), false, 2.0)
@@ -773,7 +800,7 @@ func _draw() -> void:
 				hl[t] = true
 		_draw_piece_shape(build_type, cell_center(Vector2(hover)), 1, 1.0, 0.0, prev_a)
 	for t in hl:
-		var ar := Rect2(ORIGIN + Vector2(t) * TILE, Vector2(TILE, TILE)).grow(-4)
+		var ar := Rect2(board_origin + Vector2(t) * tile_size, Vector2(tile_size, tile_size)).grow(-4)
 		draw_rect(ar, DA.ATTACK_FILL)
 		draw_rect(ar, DA.ATTACK_RING, false, 1.5)
 		draw_circle(cell_center(Vector2(t)), 4.5, DA.ATTACK_RING)
@@ -782,12 +809,12 @@ func _draw() -> void:
 		var p = pieces[c]
 		_draw_piece_shape(p.type, cell_center(Vector2(c)), p.level, p.hp / p.max_hp, p.flash, 1.0)
 	if pieces.has(selected):
-		var sr := Rect2(ORIGIN + Vector2(selected) * TILE, Vector2(TILE, TILE)).grow(-3)
+		var sr := Rect2(board_origin + Vector2(selected) * tile_size, Vector2(tile_size, tile_size)).grow(-3)
 		draw_rect(sr, DA.SELECT_RING, false, 3.0)
 
 	if not castling_used and has_king():
 		for c in castle_rooks_eligible():
-			var cr := Rect2(ORIGIN + Vector2(c) * TILE, Vector2(TILE, TILE)).grow(-5)
+			var cr := Rect2(board_origin + Vector2(c) * tile_size, Vector2(tile_size, tile_size)).grow(-5)
 			draw_rect(cr, DA.CASTLE_FILL)
 			draw_rect(cr, DA.CASTLE_BORDER, false, 2.0)
 
@@ -806,7 +833,7 @@ func _draw() -> void:
 		draw_circle(s.to, 4.0, col)
 
 	if phase == Phase.GAME_OVER or phase == Phase.VICTORY:
-		var box := Rect2(ORIGIN + Vector2(0, 4.5 * TILE), Vector2(COLS * TILE, 2.5 * TILE))
+		var box := Rect2(board_origin + Vector2(0, 4.5 * tile_size), Vector2(COLS * tile_size, 2.5 * tile_size))
 		draw_rect(box, Color(0.05, 0.05, 0.07, 0.82))
 		draw_rect(box.grow(-4), DA.UI_BORDER, false, 2.0)
 		var head: String = PHASE_NAMES[phase]

@@ -20,7 +20,7 @@ primitives (rects, circles, polygons, lines) - no image assets. Piece and mob sh
 
 ```
 chess-td/
-├── project.godot          # project config, main scene, 760x704 window
+├── project.godot          # project config, main scene, resizable window + stretch
 ├── scenes/main.tscn       # Main(Node) -> Game(Node2D, game.gd) + UI(CanvasLayer, ui.gd)
 ├── scripts/
 │   ├── pieces.gd          # piece stats + pure chess attack-pattern functions

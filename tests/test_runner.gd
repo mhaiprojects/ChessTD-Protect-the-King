@@ -87,6 +87,8 @@ func _run() -> void:
 	test_scoring_and_highscores()
 	print("== Main scene + UI + mouse input ==")
 	await test_scene()
+	print("== Responsive layout ==")
+	await test_responsive_layout()
 	print("\nRESULT: %d passed, %d failed" % [passed, failed])
 	quit(1 if failed > 0 else 0)
 
@@ -644,12 +646,52 @@ func test_scoring_and_highscores() -> void:
 	check(FileAccess.file_exists(_hs_test_path()), "High score file created at override path")
 
 
+func _set_viewport_size(scene: Node, sz: Vector2i) -> void:
+	DisplayServer.window_set_size(sz)
+	var vp: Viewport = scene.get_viewport()
+	vp.size = sz
+	vp.size = sz
+
+
+func test_responsive_layout() -> void:
+	var scene = load("res://scenes/main.tscn").instantiate()
+	root.add_child(scene)
+	var g = scene.get_node("Game")
+	var ui = scene.get_node("UI")
+	for sz in [Vector2i(760, 704), Vector2i(1280, 720), Vector2i(1920, 1080), Vector2i(640, 480)]:
+		_set_viewport_size(scene, sz)
+		for i in 2:
+			await process_frame
+		ui.apply_layout_now()
+		await process_frame
+		check(ui._controls_inside_viewport(), "HUD panel visible inside viewport at %s" % sz)
+		var br: Rect2 = g.board_viewport_rect()
+		var vp_r: Rect2 = scene.get_viewport().get_visible_rect()
+		check(
+			br.position.x >= -2.0 and br.position.y >= -2.0
+			and br.end.x <= vp_r.size.x + 2.0 and br.end.y <= vp_r.size.y + 2.0,
+			"Board rect inside viewport at %s" % sz
+		)
+		g.reset()
+		g.build_type = P.KING
+		var ev := InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.pressed = true
+		ev.position = g.cell_center(Vector2(3, 11))
+		g._unhandled_input(ev)
+		check(g.king_cell == Vector2i(3, 11), "Mouse-to-tile correct at viewport %s" % sz)
+	scene.queue_free()
+	await process_frame
+
+
 func test_scene() -> void:
 	var scene = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
 	for i in 3: await process_frame
 	var g = scene.get_node("Game")
 	var ui = scene.get_node("UI")
+	ui.apply_layout_now()
+	await process_frame
 	check(g != null and ui.build_buttons.size() == 7 and ui.btn_start != null and ui.btn_leaderboard != null, "Main scene loads with HUD (7 build buttons)")
 	# Simulate a real left click on tile (3,11) with King selected
 	var ev := InputEventMouseButton.new()

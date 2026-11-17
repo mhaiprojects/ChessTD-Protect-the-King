@@ -3,6 +3,7 @@ extends SceneTree
 ## Exit code 0 = all passed.
 
 const P := preload("res://scripts/pieces.gd")
+const M := preload("res://scripts/mobs.gd")
 const GameScript := preload("res://scripts/game.gd")
 const SIZE := Vector2i(8, 12)
 
@@ -54,6 +55,8 @@ func _run() -> void:
 	test_patterns()
 	print("== Placement / setup ==")
 	test_placement()
+	print("== Mob types ==")
+	test_mob_types()
 	print("== Waves, mob movement & pathfinding ==")
 	test_wave_and_movement()
 	print("== Mob tile occupation ==")
@@ -115,6 +118,39 @@ func test_patterns() -> void:
 	check(same_tiles(P.attack_tiles(P.PAWN, c, 1, SIZE, empty), [Vector2i(2, 7), Vector2i(4, 7)]), "Pawn diagonal-forward captures")
 	check(same_tiles(P.attack_tiles(P.PAWN, Vector2i(0, 5), 3, SIZE, empty), [Vector2i(1, 4)]), "Pawn clipped at edge")
 	check(P.attack_tiles(P.WALL, c, 1, SIZE, empty).is_empty(), "Wall never attacks")
+
+
+func test_mob_types() -> void:
+	var g = new_game()
+	g.wave = 1
+	var grunt = g.spawn_mob(Vector2i(0, 0), -1.0, M.GRUNT)
+	var runner = g.spawn_mob(Vector2i(1, 0), -1.0, M.RUNNER)
+	var brute = g.spawn_mob(Vector2i(2, 0), -1.0, M.BRUTE)
+	check(runner.speed > grunt.speed and runner.hp < grunt.hp, "Runner faster and lower HP than Grunt")
+	check(brute.hp > grunt.hp * 1.5 and brute.speed < grunt.speed, "Brute tankier and slower than Grunt")
+	check(brute.reward > grunt.reward, "Brute pays more gold than Grunt")
+	var mix := M.wave_spawn_list(1)
+	check(mix.size() == 6, "Wave 1 has 6 mobs in spawn list")
+	check(mix.has(M.RUNNER) and mix.count(M.GRUNT) >= 4, "Wave 1 mixes Runner with Grunts")
+	var g2 = new_game()
+	g2.place(P.KING, Vector2i(3, 11))
+	g2.start_wave()
+	check(g2.spawn_types.size() == 6 and g2.spawn_types.has(M.RUNNER), "start_wave uses mixed spawn_types")
+	g2.free()
+	var w5 := M.wave_spawn_list(5)
+	check(w5.has(M.BRUTE) and w5.has(M.SAPPER), "Wave 5 includes Brute and Sapper")
+	g.free()
+	# Sapper prefers walls over other pieces when King not adjacent
+	g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.PAWN, Vector2i(2, 9))
+	g.place(P.WALL, Vector2i(3, 9))
+	var sap = g.spawn_mob(Vector2i(3, 8), 100000.0, M.SAPPER)
+	sap.speed = 0.0
+	run_for(g, 2.5)
+	var wall = g.pieces[Vector2i(3, 9)]
+	check(wall.hp < wall.max_hp, "Sapper attacks adjacent wall preferentially")
+	g.free()
 
 
 func test_placement() -> void:

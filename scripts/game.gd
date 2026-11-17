@@ -3,6 +3,7 @@ extends Node2D
 ## All simulation goes through step(delta) so it can be driven headlessly by tests.
 
 const P := preload("res://scripts/pieces.gd")
+const M := preload("res://scripts/mobs.gd")
 
 const COLS := 8
 const ROWS := 12
@@ -34,11 +35,14 @@ class Mob:
 	var cell: Vector2i      # last tile centre reached
 	var target: Vector2i    # tile currently walking into (== cell when idle)
 	var pos: Vector2        # continuous position in tile units
+	var mob_type: int = M.GRUNT
 	var hp: float
 	var max_hp: float
 	var speed: float        # tiles / second
 	var damage: float
 	var reward: int
+	var wall_mult := 1.0
+	var prefers_walls := false
 	var atk_cd := 0.0
 	var alive := true
 
@@ -58,7 +62,8 @@ var build_type: int = P.KING
 var hover := Vector2i(-1, -1)
 var spawn_left := 0
 var spawn_timer := 0.0
-var wave_hp := 18.0
+var spawn_types: Array = []     # mob type per remaining spawn (same length as spawn_left)
+var wave_hp := 18.0              # legacy default HP for tests that override hp only
 var kills := 0
 var gold_from_kills := 0
 var last_message := ""
@@ -89,6 +94,7 @@ func reset() -> void:
 	selected = Vector2i(-1, -1)
 	build_type = P.KING
 	spawn_left = 0
+	spawn_types.clear()
 	kills = 0
 	gold_from_kills = 0
 	_board_changed()
@@ -240,7 +246,8 @@ func start_wave() -> bool:
 		_msg("Place your King first!")
 		return false
 	wave += 1
-	spawn_left = 4 + wave * 2
+	spawn_types = M.wave_spawn_list(wave)
+	spawn_left = spawn_types.size()
 	wave_hp = 18.0 * pow(1.25, wave - 1)
 	spawn_timer = 0.0
 	phase = Phase.WAVE
@@ -248,16 +255,28 @@ func start_wave() -> bool:
 	return true
 
 
-func spawn_mob(c: Vector2i, hp: float = -1.0):
+func spawn_mob(c: Vector2i, hp: float = -1.0, mob_type: int = M.GRUNT) -> Mob:
 	var m := Mob.new()
 	m.cell = c
 	m.target = c
 	m.pos = Vector2(c)
-	m.hp = hp if hp > 0.0 else wave_hp
+	m.mob_type = mob_type
+	var st := M.mob_stats(mob_type, maxi(wave, 1))
+	m.hp = hp if hp > 0.0 else st.hp
 	m.max_hp = m.hp
-	m.speed = 1.0 + 0.05 * wave
-	m.damage = 3.0 + wave
-	m.reward = 5 + wave
+	if hp > 0.0:
+		# Test/manual override: keep type stats except HP.
+		m.speed = st.speed
+		m.damage = st.damage
+		m.reward = st.reward
+		m.wall_mult = st.wall_mult
+		m.prefers_walls = st.prefers_walls
+	else:
+		m.speed = st.speed
+		m.damage = st.damage
+		m.reward = st.reward
+		m.wall_mult = st.wall_mult
+		m.prefers_walls = st.prefers_walls
 	m.atk_cd = 0.5
 	mobs.append(m)
 	return m
@@ -327,7 +346,8 @@ func _try_spawn_wave_mob() -> bool:
 	for x in order:
 		var c := Vector2i(x, 0)
 		if not _tile_occupied_by_mob(c):
-			spawn_mob(c)
+			var t: int = spawn_types[spawn_types.size() - spawn_left]
+			spawn_mob(c, -1.0, t)
 			return true
 	return false
 
@@ -379,7 +399,10 @@ func _update_mob(m, dt: float) -> void:
 		if victim != null:
 			m.atk_cd = MOB_ATTACK_RATE
 			shots.append({"from": cell_center(m.pos), "to": cell_center(Vector2(victim.cell)), "t": 0.12, "enemy": true})
-			_damage_piece(victim, m.damage)
+			var dmg: float = m.damage
+			if victim.type == P.WALL:
+				dmg *= m.wall_mult
+			_damage_piece(victim, dmg)
 
 
 ## Mobs hit: the King if adjacent (8-neighbourhood), else whatever blocks their path,
@@ -388,6 +411,14 @@ func _pick_victim(m, blocker: Vector2i):
 	var t: Vector2i = m.cell if m.target == m.cell else m.tile()
 	if has_king() and abs(king_cell.x - t.x) <= 1 and abs(king_cell.y - t.y) <= 1:
 		return pieces[king_cell]
+	if m.prefers_walls:
+		var wall_best = null
+		for d in P.ORTHO + P.DIAG:
+			var p = pieces.get(t + d)
+			if p != null and p.type == P.WALL and (wall_best == null or p.hp < wall_best.hp):
+				wall_best = p
+		if wall_best != null:
+			return wall_best
 	if pieces.has(blocker):
 		return pieces[blocker]
 	var best = null
@@ -516,9 +547,8 @@ func _draw() -> void:
 
 	for m in mobs:
 		var cp := cell_center(m.pos)
-		var tri := PackedVector2Array([cp + Vector2(-15, -12), cp + Vector2(15, -12), cp + Vector2(0, 16)])
-		draw_colored_polygon(tri, Color(0.55, 0.05, 0.1))
-		draw_polyline(PackedVector2Array([tri[0], tri[1], tri[2], tri[0]]), Color(0.1, 0, 0), 2.0)
+		var fill: Color = M.COLORS[m.mob_type]
+		M.draw_mob(self, cp, m.mob_type, fill, Color(0.1, 0, 0))
 		_draw_bar(cp + Vector2(-16, -22), 32, m.hp / m.max_hp, Color(0.9, 0.2, 0.2))
 
 	for s in shots:

@@ -56,6 +56,7 @@ func _run() -> void:
 	print("== Placement / setup ==")
 	test_placement()
 	test_tower_adjacency()
+	test_path_validation()
 	print("== Mob types ==")
 	test_mob_types()
 	print("== Difficulty curve ==")
@@ -203,6 +204,30 @@ func test_tower_adjacency() -> void:
 	g.free()
 
 
+func _force_wall(g, c: Vector2i) -> void:
+	var p = g.Piece.new()
+	p.type = P.WALL
+	p.cell = c
+	p.max_hp = P.max_hp(P.WALL, 1)
+	p.hp = p.max_hp
+	p.spent = P.COST[P.WALL]
+	g.pieces[c] = p
+	g._board_changed()
+
+
+func test_path_validation() -> void:
+	var g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(1, 9))
+	check(not g.place(P.WALL, Vector2i(3, 10)), "Cannot seal King with a wall")
+	check(g.place(P.WALL, Vector2i(0, 6)), "Wall allowed when a path remains")
+	g.sell(Vector2i(3, 11))
+	for x in 8:
+		_force_wall(g, Vector2i(x, 5))
+	check(not g.place(P.KING, Vector2i(3, 11)), "King placement rejected when spawn is fully cut off")
+	g.free()
+
+
 func test_wave_and_movement() -> void:
 	var g = new_game()
 	g.place(P.KING, Vector2i(3, 11))
@@ -232,7 +257,7 @@ func test_wave_and_movement() -> void:
 	g = new_game()
 	g.place(P.KING, Vector2i(3, 11))
 	for x in 8:
-		g.place(P.WALL, Vector2i(x, 6))
+		_force_wall(g, Vector2i(x, 6))
 	mob = g.spawn_mob(Vector2i(3, 0), 100000.0)
 	run_for(g, 60.0, 0.05, func(): return mob.cell.y >= 7)
 	var walls := 0

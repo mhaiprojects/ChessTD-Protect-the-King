@@ -128,6 +128,38 @@ func world_to_cell(p: Vector2) -> Vector2i:
 	return Vector2i(floori(q.x), floori(q.y))
 
 
+func _paths_exist_to_goal(goal: Vector2i, extra: Array) -> bool:
+	if not in_bounds(goal):
+		return false
+	var restore: Array = []
+	for c in pieces:
+		if c == goal:
+			continue
+		astar.set_point_solid(c, true)
+		restore.append(c)
+	for c in extra:
+		if c == goal:
+			continue
+		if in_bounds(c) and not c in restore:
+			astar.set_point_solid(c, true)
+			restore.append(c)
+	var found := false
+	for x in COLS:
+		for y in PLAYER_MIN_ROW:
+			var s := Vector2i(x, y)
+			if pieces.has(s) or extra.has(s):
+				continue
+			var path := astar.get_id_path(s, goal)
+			if path.size() >= 2:
+				found = true
+				break
+		if found:
+			break
+	for c in restore:
+		astar.set_point_solid(c, false)
+	return found
+
+
 func _board_changed() -> void:
 	_tiles_cache.clear()
 	for y in ROWS:
@@ -176,6 +208,10 @@ func can_place(type: int, c: Vector2i) -> String:
 			return "A mob is on that tile."
 	if _tower_adjacent(c):
 		return "Too close to a tower — leave a one-tile gap."
+	if has_king() or type == P.KING:
+		var goal: Vector2i = c if type == P.KING else king_cell
+		if not _paths_exist_to_goal(goal, [c]):
+			return "Would block all paths to the King."
 	if gold < P.COST[type]:
 		return "Not enough gold (%d needed)." % P.COST[type]
 	return ""

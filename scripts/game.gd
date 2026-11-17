@@ -733,8 +733,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_C:
 				try_castle()
 			KEY_ESCAPE:
-				selected = Vector2i(-1, -1)
-				build_type = -1
+				var ui = get_parent().get_node_or_null("UI")
+				if ui != null and ui.has_method("piece_options_open") and ui.piece_options_open():
+					ui.close_piece_options()
+				else:
+					selected = Vector2i(-1, -1)
+					build_type = -1
 
 
 func handle_click(c: Vector2i, button: int) -> void:
@@ -747,6 +751,9 @@ func handle_click(c: Vector2i, button: int) -> void:
 	if pieces.has(c):
 		selected = c
 		build_type = -1
+		var ui = get_parent().get_node_or_null("UI")
+		if ui != null and ui.has_method("open_piece_options"):
+			ui.open_piece_options(c)
 	elif build_type >= 0:
 		var t := build_type
 		if place(t, c):

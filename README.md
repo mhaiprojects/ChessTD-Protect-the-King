@@ -88,11 +88,11 @@ Sliding pieces (R/B/Q) are blocked by your own pieces/walls and have max range `
 | Input | Action |
 |---|---|
 | Left click empty tile | place the selected build type |
-| Left click a piece | select it (attack squares highlighted red) |
+| Left click a piece | open **piece options** dialog (pauses game; attack squares highlighted) |
 | Right click / Esc | cancel selection / build type |
 | 1–7 | build King, Queen, Rook, Bishop, Knight, Pawn, Wall |
-| U / S (Del) | upgrade / sell selected piece |
-| C | **castling** — swap King with an eligible Rook (once per match) |
+| U / S (Del) | upgrade / sell in the piece dialog (or select a piece first) |
+| C | **castling** in the piece dialog when shown (once per match) |
 | Space / Enter | start next wave |
 | L | open / close **Leaderboard** (also opens at game end) |
 
@@ -100,7 +100,7 @@ Hovering with a tower type selected previews the piece and its attack squares (w
 
 ### Castling (emergency escape)
 
-Once per match you can **swap the King's position with a Rook tower** (like chess castling, but a true position swap). Select your **King** or an eligible **Rook**, then press **C** or **Castle [C]** in the HUD.
+Once per match you can **swap the King's position with a Rook tower** (like chess castling, but a true position swap). Click your **King** or an eligible **Rook**, then press **C** or **Castle** in the piece dialog.
 
 * **Range:** the Rook must sit on the **same row as the King**, **2–4 tiles away horizontally** (not adjacent).
 * **Safety:** neither tile may be occupied by a mob; the swap must still leave at least one path from the spawn zone to the **new** King square (same rule as placement).

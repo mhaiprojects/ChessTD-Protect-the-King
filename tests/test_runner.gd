@@ -89,6 +89,8 @@ func _run() -> void:
 	await test_scene()
 	print("== Responsive layout ==")
 	await test_responsive_layout()
+	print("== Piece options dialog ==")
+	await test_piece_options_dialog()
 	print("\nRESULT: %d passed, %d failed" % [passed, failed])
 	quit(1 if failed > 0 else 0)
 
@@ -684,6 +686,48 @@ func test_responsive_layout() -> void:
 	await process_frame
 
 
+func test_piece_options_dialog() -> void:
+	var scene = load("res://scenes/main.tscn").instantiate()
+	root.add_child(scene)
+	var g = scene.get_node("Game")
+	var ui = scene.get_node("UI")
+	ui.apply_layout_now()
+	await process_frame
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(3, 8))
+	g.start_wave()
+	var spawn0: int = g.spawn_left
+	var ev := InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_LEFT
+	ev.pressed = true
+	ev.position = g.cell_center(Vector2(3, 8))
+	g._unhandled_input(ev)
+	await process_frame
+	check(ui.piece_options_open() and scene.get_tree().paused, "Dialog pauses during wave")
+	for i in 20:
+		await process_frame
+	check(g.spawn_left == spawn0, "Spawning frozen while dialog open")
+	g.gold = 500
+	var lv0: int = g.pieces[Vector2i(3, 8)].level
+	ui.btn_upgrade.pressed.emit()
+	ui.btn_upgrade.pressed.emit()
+	check(g.pieces[Vector2i(3, 8)].level == lv0 + 2, "Repeated dialog upgrades work")
+	var key := InputEventKey.new()
+	key.pressed = true
+	key.echo = false
+	key.keycode = KEY_U
+	ui._unhandled_input(key)
+	check(g.pieces[Vector2i(3, 8)].level == lv0 + 3, "Hotkey U upgrades via dialog")
+	ui.close_piece_options()
+	await process_frame
+	check(not scene.get_tree().paused, "Game unpauses after close")
+	for i in 10:
+		await process_frame
+	check(g.spawn_left < spawn0, "Spawning resumes after dialog closes")
+	scene.queue_free()
+	await process_frame
+
+
 func test_scene() -> void:
 	var scene = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
@@ -708,8 +752,11 @@ func test_scene() -> void:
 	check(g.pieces.has(Vector2i(3, 8)) and g.pieces[Vector2i(3, 8)].type == P.ROOK, "UI button + click places Rook")
 	g._unhandled_input(ev)
 	check(g.selected == Vector2i(3, 8), "Clicking a piece selects it")
+	check(ui.piece_options_open() and scene.get_tree().paused, "Piece click opens paused dialog")
 	ui.btn_upgrade.pressed.emit()
 	check(g.pieces[Vector2i(3, 8)].level == 2, "Upgrade button upgrades selection")
+	ui.close_piece_options()
+	check(not ui.piece_options_open() and not scene.get_tree().paused, "Close dialog resumes game")
 	ui.btn_start.pressed.emit()
 	check(g.phase == g.Phase.WAVE, "Start Wave button starts wave")
 	for i in 30: await process_frame

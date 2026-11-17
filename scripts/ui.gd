@@ -11,15 +11,20 @@ var board_host: Control
 var hud_scroll: ScrollContainer
 var hud_panel: PanelContainer
 var lbl_stats: Label
-var lbl_sel: Label
 var lbl_msg: Label
 var build_buttons := {}
 var btn_start: Button
 var btn_upgrade: Button
 var btn_sell: Button
 var btn_restart: Button
-var btn_castle: Button
+var btn_dialog_castle: Button
+var btn_dialog_close: Button
 var btn_leaderboard: Button
+var piece_dimmer: ColorRect
+var piece_dialog: PanelContainer
+var lbl_piece_title: Label
+var lbl_piece_body: Label
+var _piece_dialog_open := false
 var overlay_final: PanelContainer
 var overlay_leaderboard: PanelContainer
 var lbl_final_body: Label
@@ -93,26 +98,12 @@ func _build_responsive_shell() -> void:
 	btn_start.pressed.connect(func(): game.start_wave())
 	v.add_child(btn_start)
 	v.add_child(HSeparator.new())
-	lbl_sel = _label("", 13)
-	v.add_child(lbl_sel)
-	var h := HBoxContainer.new()
-	btn_upgrade = _button("Upgrade [U]")
-	btn_upgrade.pressed.connect(func(): game.upgrade(game.selected))
-	btn_sell = _button("Sell [S]")
-	btn_sell.pressed.connect(func(): game.sell(game.selected))
-	h.add_child(btn_upgrade)
-	h.add_child(btn_sell)
-	v.add_child(h)
-	btn_castle = _button("Castle [C]")
-	btn_castle.pressed.connect(func(): game.try_castle())
-	v.add_child(btn_castle)
-	v.add_child(HSeparator.new())
 	lbl_msg = _label("", 13)
 	lbl_msg.add_theme_color_override("font_color", Color(0.98, 0.86, 0.52))
 	v.add_child(lbl_msg)
 	v.add_child(
 		_label(
-			"Left-click: place / select   Right-click/Esc: cancel\nAttack squares highlight in red.",
+			"Left-click: place / select piece   Right-click: cancel\nPiece menu pauses the game.  Esc closes it.",
 			11, false, DA.UI_TEXT_DIM
 		)
 	)
@@ -133,7 +124,59 @@ func _build_responsive_shell() -> void:
 	lb_close.pressed.connect(func(): overlay_leaderboard.visible = false)
 	overlay_leaderboard.get_child(0).add_child(lb_close)
 
+	_build_piece_dialog()
+
 	get_viewport().size_changed.connect(_refresh_layout)
+
+
+func _build_piece_dialog() -> void:
+	piece_dimmer = ColorRect.new()
+	piece_dimmer.color = Color(0.04, 0.05, 0.07, 0.62)
+	piece_dimmer.visible = false
+	piece_dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
+	piece_dimmer.z_index = 6
+	add_child(piece_dimmer)
+
+	piece_dialog = PanelContainer.new()
+	piece_dialog.visible = false
+	piece_dialog.mouse_filter = Control.MOUSE_FILTER_STOP
+	piece_dialog.z_index = 7
+	var dlg_style: StyleBoxFlat = _ui_styles.panel.duplicate()
+	dlg_style.bg_color = Color(0.08, 0.09, 0.12, 0.97)
+	dlg_style.border_width_left = 2
+	dlg_style.border_width_top = 2
+	dlg_style.border_width_right = 2
+	dlg_style.border_width_bottom = 2
+	dlg_style.border_color = DA.UI_BORDER
+	piece_dialog.add_theme_stylebox_override("panel", dlg_style)
+	add_child(piece_dialog)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	piece_dialog.add_child(box)
+
+	lbl_piece_title = _label("Piece", 17, true)
+	box.add_child(lbl_piece_title)
+	lbl_piece_body = _label("", 14)
+	box.add_child(lbl_piece_body)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	btn_upgrade = _button("Upgrade [U]")
+	btn_upgrade.pressed.connect(_dialog_upgrade)
+	btn_sell = _button("Sell [S]")
+	btn_sell.pressed.connect(_dialog_sell)
+	row.add_child(btn_upgrade)
+	row.add_child(btn_sell)
+	box.add_child(row)
+
+	btn_dialog_castle = _button("Castle [C]")
+	btn_dialog_castle.pressed.connect(_dialog_castle)
+	box.add_child(btn_dialog_castle)
+
+	btn_dialog_close = _button("Close [Esc]")
+	btn_dialog_close.pressed.connect(close_piece_options)
+	box.add_child(btn_dialog_close)
 
 
 func _refresh_layout() -> void:
@@ -152,6 +195,7 @@ func _apply_layout() -> void:
 		board_rect = Rect2(Vector2.ZERO, Vector2(vp.size.x - hud_scroll.size.x, vp.size.y))
 	game.fit_to_rect(board_rect)
 	_position_overlays(vp)
+	_position_piece_dialog(vp)
 
 
 func apply_layout_now() -> void:
@@ -163,6 +207,7 @@ func apply_layout_now() -> void:
 	var board_rect := board_host.get_global_rect()
 	game.fit_to_rect(board_rect)
 	_position_overlays(vp)
+	_position_piece_dialog(vp)
 
 
 func _position_overlays(vp: Rect2) -> void:
@@ -175,6 +220,95 @@ func _position_overlays(vp: Rect2) -> void:
 	overlay_leaderboard.custom_minimum_size = lb_sz
 	overlay_leaderboard.size = lb_sz
 	overlay_leaderboard.position = (vp.size - lb_sz) * 0.5
+
+
+func _position_piece_dialog(vp: Rect2) -> void:
+	if piece_dimmer == null:
+		return
+	piece_dimmer.position = Vector2.ZERO
+	piece_dimmer.size = vp.size
+	var dlg_sz := Vector2(minf(320, vp.size.x * 0.9), minf(300, vp.size.y * 0.55))
+	piece_dialog.custom_minimum_size = dlg_sz
+	piece_dialog.size = dlg_sz
+	piece_dialog.position = (vp.size - dlg_sz) * 0.5
+
+
+func piece_options_open() -> bool:
+	return _piece_dialog_open
+
+
+func open_piece_options(c: Vector2i) -> void:
+	var p = game.get_piece(c)
+	if p == null:
+		return
+	game.selected = c
+	_piece_dialog_open = true
+	piece_dimmer.visible = true
+	piece_dialog.visible = true
+	get_tree().paused = true
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	_refresh_piece_dialog()
+
+
+func close_piece_options() -> void:
+	if not _piece_dialog_open:
+		return
+	_piece_dialog_open = false
+	piece_dimmer.visible = false
+	piece_dialog.visible = false
+	get_tree().paused = false
+	process_mode = Node.PROCESS_MODE_INHERIT
+
+
+func _refresh_piece_dialog() -> void:
+	var p = game.get_piece(game.selected)
+	if p == null:
+		close_piece_options()
+		return
+	lbl_piece_title.text = "%s  ·  Level %d" % [P.NAMES[p.type], p.level]
+	var lines: PackedStringArray = ["HP: %d / %d" % [ceili(p.hp), ceili(p.max_hp)]]
+	if P.is_tower(p.type):
+		lines.append("Damage: %.1f every %.1fs" % [P.damage(p.type, p.level), P.COOLDOWN[p.type]])
+		if p.level < P.MAX_LEVEL:
+			lines.append(
+				"Next level: %.1f damage  ·  %dg" % [P.damage(p.type, p.level + 1), P.upgrade_cost(p.type, p.level)]
+			)
+		else:
+			lines.append("Damage: max level")
+	elif p.type == P.WALL:
+		if p.level < P.MAX_LEVEL:
+			lines.append(
+				"Next level: %d HP  ·  %dg" % [ceili(P.max_hp(P.WALL, p.level + 1)), P.upgrade_cost(p.type, p.level)]
+			)
+		else:
+			lines.append("Wall: max level")
+	if p.level < P.MAX_LEVEL and not P.is_tower(p.type) and p.type != P.WALL:
+		lines.append("Upgrade cost: %dg" % P.upgrade_cost(p.type, p.level))
+	lbl_piece_body.text = "\n".join(lines)
+	btn_upgrade.disabled = p.level >= P.MAX_LEVEL or game.gold < P.upgrade_cost(p.type, p.level)
+	btn_sell.disabled = p.type == P.KING and game.phase != game.Phase.SETUP
+	var show_castle: bool = (
+		not game.castling_used
+		and (p.type == P.KING or p.type == P.ROOK)
+		and not game.castle_rooks_eligible().is_empty()
+	)
+	btn_dialog_castle.visible = show_castle
+	btn_dialog_castle.disabled = not show_castle
+
+
+func _dialog_upgrade() -> void:
+	if game.upgrade(game.selected):
+		_refresh_piece_dialog()
+
+
+func _dialog_sell() -> void:
+	if game.sell(game.selected):
+		close_piece_options()
+
+
+func _dialog_castle() -> void:
+	if game.try_castle():
+		_refresh_piece_dialog()
 
 
 func _controls_inside_viewport() -> bool:
@@ -223,6 +357,7 @@ func _overlay_label(panel: PanelContainer) -> Label:
 
 
 func _on_restart() -> void:
+	close_piece_options()
 	overlay_final.visible = false
 	_end_overlay_shown = false
 	game.reset()
@@ -263,6 +398,21 @@ func _refresh_final_overlay() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
+		if _piece_dialog_open:
+			match event.keycode:
+				KEY_ESCAPE, KEY_ENTER:
+					close_piece_options()
+					get_viewport().set_input_as_handled()
+				KEY_U:
+					_dialog_upgrade()
+					get_viewport().set_input_as_handled()
+				KEY_S, KEY_DELETE:
+					_dialog_sell()
+					get_viewport().set_input_as_handled()
+				KEY_C:
+					_dialog_castle()
+					get_viewport().set_input_as_handled()
+			return
 		match event.keycode:
 			KEY_L:
 				toggle_leaderboard()
@@ -271,6 +421,20 @@ func _unhandled_input(event: InputEvent) -> void:
 				if overlay_leaderboard.visible:
 					overlay_leaderboard.visible = false
 					get_viewport().set_input_as_handled()
+				else:
+					game.selected = Vector2i(-1, -1)
+					game.build_type = -1
+					get_viewport().set_input_as_handled()
+			KEY_U:
+				if game.get_piece(game.selected) != null:
+					open_piece_options(game.selected)
+				get_viewport().set_input_as_handled()
+			KEY_S, KEY_DELETE:
+				if game.sell(game.selected):
+					get_viewport().set_input_as_handled()
+			KEY_C:
+				game.try_castle()
+				get_viewport().set_input_as_handled()
 
 
 func _button(text: String) -> Button:
@@ -290,6 +454,7 @@ func _button(text: String) -> Button:
 
 
 func _on_build(t: int) -> void:
+	close_piece_options()
 	game.build_type = t if build_buttons[t].button_pressed else -1
 	game.selected = Vector2i(-1, -1)
 
@@ -318,27 +483,8 @@ func _process(_delta: float) -> void:
 		b.set_pressed_no_signal(game.build_type == t)
 		b.disabled = game.gold < P.COST[t] or (t == P.KING and game.has_king())
 	btn_start.disabled = not (game.phase == game.Phase.SETUP or game.phase == game.Phase.BETWEEN) or not game.has_king()
-	btn_castle.disabled = game.castling_used or game.castle_rooks_eligible().is_empty()
-	var p = game.get_piece(game.selected)
-	if p == null:
-		lbl_sel.text = "Selected: none"
-		btn_upgrade.disabled = true
-		btn_sell.disabled = true
-	else:
-		var info := "Selected: %s  Lv %d\nHP %d / %d" % [P.NAMES[p.type], p.level, ceili(p.hp), ceili(p.max_hp)]
-		if P.is_tower(p.type):
-			info += "\nDamage %.1f every %.1fs" % [P.damage(p.type, p.level), P.COOLDOWN[p.type]]
-			if p.level < P.MAX_LEVEL:
-				info += "  (next: %.1f)" % P.damage(p.type, p.level + 1)
-		elif p.type == P.WALL and p.level < P.MAX_LEVEL:
-			info += "\nNext upgrade: HP %d" % ceili(P.max_hp(P.WALL, p.level + 1))
-		if p.level < P.MAX_LEVEL:
-			info += "\nUpgrade cost: %dg" % P.upgrade_cost(p.type, p.level)
-		else:
-			info += "\nMax level"
-		lbl_sel.text = info
-		btn_upgrade.disabled = p.level >= P.MAX_LEVEL or game.gold < P.upgrade_cost(p.type, p.level)
-		btn_sell.disabled = p.type == P.KING and game.phase != game.Phase.SETUP
+	if _piece_dialog_open:
+		_refresh_piece_dialog()
 	if game.build_type >= 0 and game.in_bounds(game.hover):
 		var err: String = game.can_place(game.build_type, game.hover)
 		lbl_msg.text = err if err != "" else game.last_message

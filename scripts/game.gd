@@ -10,7 +10,7 @@ const ROWS := 12
 const TILE := 56.0
 const ORIGIN := Vector2(16, 16)
 const PLAYER_MIN_ROW := 3          # rows 0..2 = enemy spawn zone, 3..11 = player side
-const MAX_WAVES := 10
+const MAX_WAVES := 20
 const START_GOLD := 200
 const PIECE_PATH_WEIGHT := 12.0    # mobs path around pieces, but will smash through if fully walled
 const SPAWN_INTERVAL := 1.2

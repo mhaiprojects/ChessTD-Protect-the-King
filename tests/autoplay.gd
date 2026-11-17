@@ -4,7 +4,7 @@ extends SceneTree
 const P := preload("res://scripts/pieces.gd")
 const M := preload("res://scripts/mobs.gd")
 
-const MAX_WAVES := 25
+const MAX_WAVES := 20
 const WAVE_TIMEOUT := 400.0
 
 

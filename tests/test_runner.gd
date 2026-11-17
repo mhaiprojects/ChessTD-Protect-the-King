@@ -61,6 +61,8 @@ func _run() -> void:
 	test_mob_types()
 	print("== Difficulty curve ==")
 	test_difficulty_curve()
+	print("== 20-wave campaign ==")
+	test_twenty_waves()
 	print("== Waves, mob movement & pathfinding ==")
 	test_wave_and_movement()
 	print("== Mob tile occupation ==")
@@ -135,11 +137,16 @@ func test_mob_types() -> void:
 	check(brute.reward > grunt.reward, "Brute pays more gold than Grunt")
 	var mix := M.wave_spawn_list(1)
 	check(mix.size() == 6, "Wave 1 has 6 mobs in spawn list")
-	check(mix.has(M.RUNNER) and mix.count(M.GRUNT) >= 4, "Wave 1 mixes Runner with Grunts")
+	check(mix.count(M.GRUNT) == 6, "Wave 1 spawn table is all Grunts")
 	var g2 = new_game()
 	g2.place(P.KING, Vector2i(3, 11))
 	g2.start_wave()
-	check(g2.spawn_types.size() == 6 and g2.spawn_types.has(M.RUNNER), "start_wave uses mixed spawn_types")
+	check(g2.spawn_types.size() == 6, "start_wave uses wave table spawn_types")
+	g2.phase = g2.Phase.BETWEEN
+	g2.spawn_left = 0
+	g2.mobs.clear()
+	g2.start_wave()
+	check(g2.wave == 2 and g2.spawn_types.has(M.RUNNER), "Wave 2 spawn mix includes Runner")
 	g2.free()
 	var w5 := M.wave_spawn_list(5)
 	check(w5.has(M.BRUTE) and w5.has(M.SAPPER), "Wave 5 includes Brute and Sapper")
@@ -154,6 +161,24 @@ func test_mob_types() -> void:
 	run_for(g, 2.5)
 	var wall = g.pieces[Vector2i(3, 9)]
 	check(wall.hp < wall.max_hp, "Sapper attacks adjacent wall preferentially")
+	g.free()
+
+
+func test_twenty_waves() -> void:
+	var g = new_game()
+	check(g.MAX_WAVES == 20, "Campaign length is 20 waves")
+	check(M.WAVE_DEFS.size() == 20, "Wave table has 20 entries")
+	check(M.wave_mob_count(1) == 6 and M.wave_mob_count(20) == 18, "Wave 1 has 6 mobs, wave 20 has 18")
+	check(M.wave_spawn_list(5).has(M.BRUTE) and M.wave_spawn_list(5).has(M.SAPPER), "Wave 5 table includes Brute and Sapper")
+	g.wave = 20
+	g.phase = g.Phase.WAVE
+	g.spawn_left = 0
+	g.mobs.clear()
+	g.step(0.05)
+	check(g.phase == g.Phase.VICTORY, "Victory triggers exactly after wave 20 is cleared")
+	check(g.last_message.contains("VICTORY"), "Victory message shown")
+	g.reset()
+	check(g.wave == 0 and g.phase == g.Phase.SETUP, "Restart after victory resets campaign")
 	g.free()
 
 
@@ -382,6 +407,12 @@ func test_combat_gold_upgrade() -> void:
 	g.gold = 10000
 	for i in 10: g.upgrade(Vector2i(3, 8))
 	check(rook.level == P.MAX_LEVEL, "Upgrades cap at level %d" % P.MAX_LEVEL)
+	var wall = g.place(P.WALL, Vector2i(1, 8))
+	g.place(P.WALL, Vector2i(1, 8))
+	var w = g.pieces[Vector2i(1, 8)]
+	var w_hp0: float = w.max_hp
+	g.gold = 500
+	check(g.upgrade(Vector2i(1, 8)) and w.level == 2 and w.max_hp > w_hp0, "Wall upgrade raises max HP")
 	# each tower type hits only in-pattern: bishop vs orthogonal / diagonal mob
 	var g2 = new_game()
 	g2.place(P.KING, Vector2i(0, 11))

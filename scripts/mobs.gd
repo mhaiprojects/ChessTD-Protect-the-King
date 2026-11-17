@@ -18,9 +18,43 @@ static func hp_scale_for_wave(wave: int) -> float:
 	return 1.0 + 0.06 * (w - 1.0)
 
 
-## Mob count grows slowly (6 at wave 1, +0–1 most waves).
+## Data-driven 20-wave progression (counts per mob type).
+const WAVE_DEFS: Array = [
+	{GRUNT: 6},
+	{GRUNT: 4, RUNNER: 2},
+	{GRUNT: 5, RUNNER: 2},
+	{GRUNT: 4, RUNNER: 2, SAPPER: 1},
+	{GRUNT: 4, RUNNER: 2, BRUTE: 1, SAPPER: 1},
+	{GRUNT: 5, RUNNER: 2, BRUTE: 1, SAPPER: 1},
+	{GRUNT: 5, RUNNER: 3, BRUTE: 1, SAPPER: 1},
+	{GRUNT: 6, RUNNER: 2, BRUTE: 2, SAPPER: 1},
+	{GRUNT: 5, RUNNER: 3, BRUTE: 2, SAPPER: 1},
+	{GRUNT: 5, RUNNER: 3, BRUTE: 2, SAPPER: 2},
+	{GRUNT: 6, RUNNER: 3, BRUTE: 2, SAPPER: 2},
+	{GRUNT: 5, RUNNER: 4, BRUTE: 2, SAPPER: 2},
+	{GRUNT: 6, RUNNER: 3, BRUTE: 3, SAPPER: 2},
+	{GRUNT: 5, RUNNER: 4, BRUTE: 3, SAPPER: 2},
+	{GRUNT: 6, RUNNER: 4, BRUTE: 3, SAPPER: 3},
+	{GRUNT: 5, RUNNER: 4, BRUTE: 4, SAPPER: 3},
+	{GRUNT: 6, RUNNER: 4, BRUTE: 4, SAPPER: 3},
+	{GRUNT: 5, RUNNER: 5, BRUTE: 4, SAPPER: 3},
+	{GRUNT: 6, RUNNER: 4, BRUTE: 4, SAPPER: 4},
+	{GRUNT: 6, RUNNER: 4, BRUTE: 4, SAPPER: 4},
+]
+
+const WAVE_TYPE_ORDER := [GRUNT, RUNNER, BRUTE, SAPPER]
+
+
+static func wave_def(wave: int) -> Dictionary:
+	return WAVE_DEFS[clampi(wave - 1, 0, WAVE_DEFS.size() - 1)]
+
+
 static func wave_mob_count(wave: int) -> int:
-	return 6 + int((maxi(wave, 1) - 1) * 0.65)
+	var def: Dictionary = wave_def(wave)
+	var n := 0
+	for t in WAVE_TYPE_ORDER:
+		n += int(def.get(t, 0))
+	return n
 
 
 static func wave_clear_bonus(wave: int) -> int:
@@ -70,24 +104,29 @@ static func mob_stats(type: int, wave: int) -> Dictionary:
 	return mob_stats(GRUNT, wave)
 
 
-## Ordered list of mob types spawned for a given wave (mixed composition).
+## Ordered list of mob types spawned for a given wave (interleaved mix).
 static func wave_spawn_list(wave: int) -> Array:
-	var n: int = wave_mob_count(wave)
+	var def: Dictionary = wave_def(wave)
+	var queues: Dictionary = {}
+	var total := 0
+	for t in WAVE_TYPE_ORDER:
+		var c: int = int(def.get(t, 0))
+		if c > 0:
+			queues[t] = []
+			for i in c:
+				queues[t].append(t)
+			total += c
 	var list: Array = []
-	list.resize(n)
-	list.fill(GRUNT)
-	var runners: int = clampi(1 + (wave - 1) / 2, 1, maxi(1, n / 3))
-	for i in runners:
-		var idx := int((i + 1) * float(n) / float(runners + 1))
-		list[idx] = RUNNER
-	if wave >= 2:
-		var brutes: int = clampi((wave - 1) / 3, 0, maxi(1, n / 4))
-		for i in brutes:
-			list[mini(n - 1 - i, n - 1)] = BRUTE
-	if wave >= 3:
-		var sappers: int = clampi((wave - 2) / 3, 0, maxi(1, n / 5))
-		for i in sappers:
-			list[mini(n / 2 + i, n - 1)] = SAPPER
+	list.resize(total)
+	var idx := 0
+	while idx < total:
+		for t in WAVE_TYPE_ORDER:
+			var q: Array = queues.get(t, [])
+			if q.is_empty():
+				continue
+			list[idx] = q.pop_front()
+			queues[t] = q
+			idx += 1
 	return list
 
 

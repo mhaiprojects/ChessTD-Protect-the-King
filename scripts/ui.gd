@@ -12,6 +12,7 @@ var btn_start: Button
 var btn_upgrade: Button
 var btn_sell: Button
 var btn_restart: Button
+var btn_castle: Button
 
 
 func _ready() -> void:
@@ -58,6 +59,9 @@ func _ready() -> void:
 	h.add_child(btn_upgrade)
 	h.add_child(btn_sell)
 	v.add_child(h)
+	btn_castle = _button("Castle [C]")
+	btn_castle.pressed.connect(func(): game.try_castle())
+	v.add_child(btn_castle)
 	v.add_child(HSeparator.new())
 	lbl_msg = _label("", 13)
 	lbl_msg.modulate = Color(1, 0.9, 0.5)
@@ -98,14 +102,16 @@ func _process(_delta: float) -> void:
 	if game.has_king():
 		var k = game.pieces[game.king_cell]
 		king_hp = "%d / %d" % [ceili(k.hp), ceili(k.max_hp)]
-	lbl_stats.text = "Gold: %d\nKing HP (lives): %s\nWave: %d / %d\nPhase: %s\nMobs: %d alive, %d to spawn\nKills: %d" % [
-		game.gold, king_hp, game.wave, game.MAX_WAVES, game.PHASE_NAMES[game.phase],
+	var castle_txt := "used" if game.castling_used else ("available" if game.castle_rooks_eligible().size() > 0 else "unavailable")
+	lbl_stats.text = "Gold: %d\nKing HP (lives): %s\nWave: %d / %d\nPhase: %s\nCastling: %s\nMobs: %d alive, %d to spawn\nKills: %d" % [
+		game.gold, king_hp, game.wave, game.MAX_WAVES, game.PHASE_NAMES[game.phase], castle_txt,
 		game.mobs.size(), game.spawn_left, game.kills]
 	for t in build_buttons:
 		var b: Button = build_buttons[t]
 		b.set_pressed_no_signal(game.build_type == t)
 		b.disabled = game.gold < P.COST[t] or (t == P.KING and game.has_king())
 	btn_start.disabled = not (game.phase == game.Phase.SETUP or game.phase == game.Phase.BETWEEN) or not game.has_king()
+	btn_castle.disabled = game.castling_used or game.castle_rooks_eligible().is_empty()
 	var p = game.get_piece(game.selected)
 	if p == null:
 		lbl_sel.text = "Selected: none"

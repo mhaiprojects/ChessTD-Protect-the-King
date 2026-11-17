@@ -69,6 +69,8 @@ func _run() -> void:
 	test_mob_tile_occupation()
 	print("== Mobs attack pieces ==")
 	test_mob_attacks()
+	print("== Castling ==")
+	test_castling()
 	print("== Combat, gold, upgrades ==")
 	test_combat_gold_upgrade()
 	print("== Full wave simulation ==")
@@ -154,13 +156,16 @@ func test_mob_types() -> void:
 	# Sapper prefers walls over other pieces when King not adjacent
 	g = new_game()
 	g.place(P.KING, Vector2i(3, 11))
-	g.place(P.PAWN, Vector2i(2, 9))
-	g.place(P.WALL, Vector2i(3, 9))
+	_force_wall(g, Vector2i(3, 9))
+	var wall0 = g.pieces[Vector2i(3, 9)]
+	wall0.max_hp = 5000.0
+	wall0.hp = 5000.0
 	var sap = g.spawn_mob(Vector2i(3, 8), 100000.0, M.SAPPER)
 	sap.speed = 0.0
+	sap.damage = 5.0
 	run_for(g, 2.5)
-	var wall = g.pieces[Vector2i(3, 9)]
-	check(wall.hp < wall.max_hp, "Sapper attacks adjacent wall preferentially")
+	var wall = g.get_piece(Vector2i(3, 9))
+	check(wall != null and wall.hp < wall.max_hp, "Sapper attacks adjacent wall preferentially")
 	g.free()
 
 
@@ -363,6 +368,66 @@ func test_mob_attacks() -> void:
 	check(not g.place(P.PAWN, Vector2i(1, 9)), "No building after game over")
 	g.reset()
 	check(g.phase == g.Phase.SETUP and g.pieces.is_empty() and g.gold == 200, "Restart resets the game")
+	g.free()
+
+
+func test_castling() -> void:
+	var g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(1, 11))
+	check(g.castle_rooks_eligible().has(Vector2i(1, 11)), "Rook two tiles left on King row is eligible")
+	g.place(P.ROOK, Vector2i(6, 8))
+	check(not g.castle_rooks_eligible().has(Vector2i(6, 8)), "Rook not on King row is ineligible")
+	g.selected = Vector2i(1, 11)
+	check(g.perform_castle(Vector2i(1, 11)) and g.king_cell == Vector2i(1, 11), "Castling swaps King to Rook tile")
+	check(g.pieces[Vector2i(1, 11)].type == P.KING and g.pieces[Vector2i(3, 11)].type == P.ROOK, "Pieces swapped positions")
+	check(g.castling_used and g.castle_rooks_eligible().is_empty(), "Only one castle per match")
+	check(not g.perform_castle(Vector2i(3, 11)), "Second castle rejected")
+	g.reset()
+	check(not g.castling_used and g.pieces.is_empty(), "Restart resets castling flag")
+	g.free()
+
+	g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(7, 11))
+	check(g.castle_rooks_eligible().has(Vector2i(7, 11)), "Rook four tiles away is eligible")
+	g.place(P.ROOK, Vector2i(0, 8))
+	check(not g.castle_rooks_eligible().has(Vector2i(0, 8)), "Rook on wrong row is ineligible")
+	g.sell(Vector2i(7, 11))
+	g.sell(Vector2i(3, 11))
+	g.place(P.KING, Vector2i(0, 11))
+	g.place(P.ROOK, Vector2i(5, 11))
+	check(g.castle_rooks_eligible().is_empty(), "Rook five tiles away is ineligible")
+	g.free()
+
+	g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(6, 11))
+	var mob = g.spawn_mob(Vector2i(3, 11), 100.0)
+	mob.speed = 0.0
+	check(g.can_castle_to(Vector2i(6, 11)) != "", "Cannot castle with mob on King tile")
+	g.free()
+
+	g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(6, 11))
+	g.place(P.ROOK, Vector2i(1, 11))
+	g.place(P.ROOK, Vector2i(7, 11))
+	_force_wall(g, Vector2i(6, 10))
+	_force_wall(g, Vector2i(7, 10))
+	for y in range(3, 11):
+		_force_wall(g, Vector2i(6, y))
+	check(g.can_castle_to(Vector2i(7, 11)) != "", "Castle rejected when swap leaves no path to King")
+	g.selected = Vector2i(3, 11)
+	check(g.try_castle() and g.king_cell == Vector2i(1, 11), "try_castle from King picks nearest eligible rook")
+	g.free()
+
+	g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(6, 11))
+	g.start_wave()
+	g.selected = Vector2i(6, 11)
+	check(g.perform_castle(Vector2i(6, 11)) and g._paths_exist_to_goal(g.king_cell, []), "Post-castle path to King remains")
 	g.free()
 
 

@@ -15,6 +15,9 @@ const START_GOLD := 200
 const PIECE_PATH_WEIGHT := 12.0    # mobs path around pieces, but will smash through if fully walled
 const SPAWN_INTERVAL := 1.2
 const MOB_ATTACK_RATE := 1.0
+## Castling: King swaps with a Rook on the same rank, horizontal distance 2–4 tiles (once per match).
+const CASTLING_MIN_H := 2
+const CASTLING_MAX_H := 4
 
 enum Phase { SETUP, WAVE, BETWEEN, GAME_OVER, VICTORY }
 const PHASE_NAMES := ["Setup", "Wave running", "Build (between waves)", "GAME OVER", "VICTORY"]
@@ -67,6 +70,7 @@ var wave_hp := 18.0              # legacy default HP for tests that override hp 
 var kills := 0
 var gold_from_kills := 0
 var last_message := ""
+var castling_used := false
 var rng := RandomNumberGenerator.new()
 var astar := AStarGrid2D.new()
 var _tiles_cache: Dictionary = {}
@@ -97,6 +101,7 @@ func reset() -> void:
 	spawn_types.clear()
 	kills = 0
 	gold_from_kills = 0
+	castling_used = false
 	_board_changed()
 	_msg("Setup: place your King (mandatory), then towers and walls. Press Start Wave.")
 
@@ -282,6 +287,102 @@ func sell(c: Vector2i) -> bool:
 	_board_changed()
 	_msg("Removed %s (+%d gold)." % [P.NAMES[p.type], refund])
 	return true
+
+
+func _mob_on_tile(c: Vector2i) -> bool:
+	return _tile_occupied_by_mob(c)
+
+
+func _rook_on_kings_row(c: Vector2i) -> bool:
+	if not has_king():
+		return false
+	var p = pieces.get(c)
+	if p == null or p.type != P.ROOK:
+		return false
+	if c.y != king_cell.y:
+		return false
+	var dx: int = absi(c.x - king_cell.x)
+	return dx >= CASTLING_MIN_H and dx <= CASTLING_MAX_H
+
+
+func castle_rooks_eligible() -> Array:
+	if castling_used or not has_king():
+		return []
+	if phase == Phase.GAME_OVER or phase == Phase.VICTORY:
+		return []
+	var out: Array = []
+	for c in pieces:
+		if _rook_on_kings_row(c) and can_castle_to(c) == "":
+			out.append(c)
+	return out
+
+
+func can_castle_to(rook_c: Vector2i) -> String:
+	if castling_used:
+		return "Castling already used this match."
+	if phase == Phase.GAME_OVER or phase == Phase.VICTORY:
+		return "Game is over."
+	if not has_king():
+		return "No King on the board."
+	if not _rook_on_kings_row(rook_c):
+		return "Rook must be on the King's row, 2–4 tiles away horizontally."
+	if _mob_on_tile(king_cell) or _mob_on_tile(rook_c):
+		return "Cannot castle — a mob occupies the King or Rook."
+	if not _paths_exist_to_goal(rook_c, []):
+		return "Would block all paths to the King."
+	return ""
+
+
+func perform_castle(rook_c: Vector2i) -> bool:
+	var err := can_castle_to(rook_c)
+	if err != "":
+		_msg(err)
+		return false
+	var king_c: Vector2i = king_cell
+	var k = pieces[king_c]
+	var r = pieces[rook_c]
+	pieces.erase(king_c)
+	pieces.erase(rook_c)
+	k.cell = rook_c
+	r.cell = king_c
+	pieces[rook_c] = k
+	pieces[king_c] = r
+	king_cell = rook_c
+	castling_used = true
+	if selected == king_c:
+		selected = rook_c
+	elif selected == rook_c:
+		selected = king_c
+	_board_changed()
+	_msg("Castling! King and Rook swapped.")
+	return true
+
+
+func try_castle() -> bool:
+	if castling_used:
+		_msg("Castling already used this match.")
+		return false
+	var rook_c := Vector2i(-1, -1)
+	var p = get_piece(selected)
+	if p == null:
+		_msg("Select your King or an eligible Rook, then press C or Castle.")
+		return false
+	if p.type == P.ROOK:
+		rook_c = selected
+	elif p.type == P.KING:
+		var best_dx := 999
+		for c in castle_rooks_eligible():
+			var dx: int = absi(c.x - king_cell.x)
+			if dx < best_dx:
+				best_dx = dx
+				rook_c = c
+		if rook_c.x < 0:
+			_msg("No eligible Rook to castle with (same row, 2–4 tiles away).")
+			return false
+	else:
+		_msg("Select your King or a Rook to castle.")
+		return false
+	return perform_castle(rook_c)
 
 
 func start_wave() -> bool:
@@ -534,6 +635,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				sell(selected)
 			KEY_SPACE, KEY_ENTER:
 				start_wave()
+			KEY_C:
+				try_castle()
 			KEY_ESCAPE:
 				selected = Vector2i(-1, -1)
 				build_type = -1
@@ -597,6 +700,12 @@ func _draw() -> void:
 		_draw_piece_shape(p.type, cell_center(Vector2(c)), p.level, p.hp / p.max_hp, p.flash, font, 1.0)
 	if pieces.has(selected):
 		draw_rect(Rect2(ORIGIN + Vector2(selected) * TILE, Vector2(TILE, TILE)), Color(1, 1, 0.2), false, 3.0)
+
+	if not castling_used and has_king():
+		for c in castle_rooks_eligible():
+			var cr := Rect2(ORIGIN + Vector2(c) * TILE, Vector2(TILE, TILE)).grow(-4)
+			draw_rect(cr, Color(0.25, 0.55, 1.0, 0.35))
+			draw_rect(cr, Color(0.3, 0.65, 1.0, 0.95), false, 2.0)
 
 	for m in mobs:
 		var cp := cell_center(m.pos)

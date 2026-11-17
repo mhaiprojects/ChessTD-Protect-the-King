@@ -142,39 +142,47 @@ static func wave_spawn_list(wave: int) -> Array:
 	return list
 
 
-static func draw_mob(canvas: CanvasItem, center: Vector2, type: int, fill: Color, outline: Color) -> void:
+static func draw_mob(canvas: CanvasItem, center: Vector2, type: int, fill: Color, outline: Color, flash: float = 0.0) -> void:
+	var ink := outline
+	if flash > 0.0:
+		ink = ink.lerp(Color(1.0, 0.5, 0.35), clampf(flash / 0.18, 0.0, 0.65))
 	match type:
 		PROMOTED:
-			var r := 16.0
+			var r := 15.0
 			canvas.draw_circle(center, r, fill)
-			canvas.draw_arc(center, r, 0, TAU, 32, outline, 2.0)
+			canvas.draw_arc(center, r, 0, TAU, 32, ink, 2.2)
 			var crown := PackedVector2Array([
-				center + Vector2(-14, -6), center + Vector2(-7, -18), center + Vector2(0, -10),
-				center + Vector2(7, -18), center + Vector2(14, -6),
+				center + Vector2(-15, -5), center + Vector2(-9, -19), center + Vector2(-4, -8),
+				center + Vector2(0, -18), center + Vector2(4, -8), center + Vector2(9, -19), center + Vector2(15, -5),
 			])
-			canvas.draw_colored_polygon(crown, fill.lightened(0.15))
-			canvas.draw_polyline(PackedVector2Array([crown[0], crown[1], crown[2], crown[3], crown[4]]), outline, 2.0)
+			canvas.draw_colored_polygon(crown, fill.lightened(0.12))
+			canvas.draw_polyline(crown, ink, 2.0)
+			for i in [1, 3, 5]:
+				canvas.draw_circle(crown[i] + Vector2(0, -1), 2.2, Color(0.95, 0.82, 0.25))
 		RUNNER:
 			var dia := PackedVector2Array([
-				center + Vector2(0, -14), center + Vector2(13, 0),
-				center + Vector2(0, 14), center + Vector2(-13, 0),
+				center + Vector2(0, -15), center + Vector2(14, 0),
+				center + Vector2(0, 15), center + Vector2(-14, 0),
 			])
 			canvas.draw_colored_polygon(dia, fill)
-			canvas.draw_polyline(PackedVector2Array([dia[0], dia[1], dia[2], dia[3], dia[0]]), outline, 2.0)
+			canvas.draw_polyline(PackedVector2Array([dia[0], dia[1], dia[2], dia[3], dia[0]]), ink, 2.2)
 		BRUTE:
-			var r := Rect2(center - Vector2(17, 17), Vector2(34, 34))
-			canvas.draw_rect(r, fill)
-			canvas.draw_rect(r, outline, false, 2.0)
+			var sq := Rect2(center - Vector2(16, 16), Vector2(32, 32))
+			canvas.draw_rect(sq, fill)
+			canvas.draw_line(sq.position + Vector2(0, 11), sq.position + Vector2(32, 11), ink, 2.0)
+			canvas.draw_line(sq.position + Vector2(0, 21), sq.position + Vector2(32, 21), ink, 2.0)
+			canvas.draw_rect(sq, ink, false, 2.2)
 		SAPPER:
 			var hex := PackedVector2Array()
 			for k in 6:
 				var a: float = float(k) / 6.0 * TAU - PI / 2.0
-				hex.append(center + Vector2(cos(a), sin(a)) * 15.0)
+				hex.append(center + Vector2(cos(a), sin(a)) * 15.5)
 			canvas.draw_colored_polygon(hex, fill)
-			canvas.draw_polyline(PackedVector2Array([hex[0], hex[1], hex[2], hex[3], hex[4], hex[5], hex[0]]), outline, 2.0)
+			canvas.draw_polyline(PackedVector2Array([hex[0], hex[1], hex[2], hex[3], hex[4], hex[5], hex[0]]), ink, 2.2)
+			canvas.draw_line(center + Vector2(-6, 0), center + Vector2(6, 0), ink.lightened(0.2), 2.0)
 		_:  # GRUNT
 			var tri := PackedVector2Array([
-				center + Vector2(-15, -12), center + Vector2(15, -12), center + Vector2(0, 16),
+				center + Vector2(-16, -11), center + Vector2(16, -11), center + Vector2(0, 17),
 			])
 			canvas.draw_colored_polygon(tri, fill)
-			canvas.draw_polyline(PackedVector2Array([tri[0], tri[1], tri[2], tri[0]]), outline, 2.0)
+			canvas.draw_polyline(PackedVector2Array([tri[0], tri[1], tri[2], tri[0]]), ink, 2.2)

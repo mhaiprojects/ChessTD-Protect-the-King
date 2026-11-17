@@ -4,6 +4,7 @@ extends Node2D
 
 const P := preload("res://scripts/pieces.gd")
 const M := preload("res://scripts/mobs.gd")
+const DA := preload("res://scripts/draw_art.gd")
 const SC := preload("res://scripts/scoring.gd")
 const HS := preload("res://scripts/highscores.gd")
 
@@ -51,6 +52,7 @@ class Mob:
 	var atk_cd := 0.0
 	var alive := true
 	var promoted := false
+	var flash := 0.0
 
 	func tile() -> Vector2i:
 		return Vector2i(roundi(pos.x), roundi(pos.y))
@@ -495,6 +497,8 @@ func step(dt: float) -> void:
 	shots = shots.filter(func(s): return s.t > 0.0)
 	for c in pieces:
 		pieces[c].flash = max(0.0, pieces[c].flash - dt)
+	for m in mobs:
+		m.flash = max(0.0, m.flash - dt)
 	if phase == Phase.GAME_OVER or phase == Phase.VICTORY:
 		return
 	if phase == Phase.WAVE and spawn_left > 0:
@@ -671,6 +675,7 @@ func _update_towers(dt: float) -> void:
 			continue
 		p.cd = P.COOLDOWN[p.type]
 		best.hp -= P.damage(p.type, p.level)
+		best.flash = 0.18
 		shots.append({"from": cell_center(Vector2(c)), "to": cell_center(best.pos), "t": 0.12, "enemy": false})
 		if best.hp <= 0.0:
 			best.alive = false
@@ -730,91 +735,93 @@ func handle_click(c: Vector2i, button: int) -> void:
 
 func _draw() -> void:
 	var font := ThemeDB.fallback_font
+	var board := Rect2(ORIGIN, Vector2(COLS, ROWS) * TILE)
+	draw_rect(board.grow(6), DA.BG_DARK)
 	for y in ROWS:
 		for x in COLS:
 			var r := Rect2(ORIGIN + Vector2(x, y) * TILE, Vector2(TILE, TILE))
-			var col := Color(0.86, 0.84, 0.78) if (x + y) % 2 == 0 else Color(0.62, 0.58, 0.52)
+			var light: bool = (x + y) % 2 == 0
+			var col: Color = DA.SQ_LIGHT if light else DA.SQ_DARK
 			if y < PLAYER_MIN_ROW:
-				col = col.lerp(Color(0.75, 0.3, 0.3), 0.35)
+				col = DA.SPAWN_LIGHT if light else DA.SPAWN_DARK
 			draw_rect(r, col)
-	draw_rect(Rect2(ORIGIN, Vector2(COLS, ROWS) * TILE), Color(0.1, 0.1, 0.1), false, 2.0)
-	draw_line(ORIGIN + Vector2(0, PLAYER_MIN_ROW * TILE), ORIGIN + Vector2(COLS * TILE, PLAYER_MIN_ROW * TILE), Color(0.6, 0.1, 0.1), 2.0)
+			draw_rect(r.grow(-1), DA.GRID_LINE, false, 1.0)
+	var spawn_r := Rect2(ORIGIN, Vector2(COLS * TILE, PLAYER_MIN_ROW * TILE))
+	for i in range(COLS * 2 + PLAYER_MIN_ROW * 2):
+		var t: float = float(i) * 14.0
+		draw_line(spawn_r.position + Vector2(t, 0), spawn_r.position + Vector2(t - 28, spawn_r.size.y), Color(0.55, 0.15, 0.15, 0.12), 1.0)
+	draw_rect(board, DA.FRAME_LINE, false, 3.0)
+	var div_y := ORIGIN + Vector2(0, PLAYER_MIN_ROW * TILE)
+	draw_line(div_y, div_y + Vector2(COLS * TILE, 0), DA.SPAWN_DIVIDER, 3.0)
+	draw_string(
+		font, ORIGIN + Vector2(6, 14), "SPAWN", HORIZONTAL_ALIGNMENT_LEFT, 80, 11,
+		Color(0.95, 0.55, 0.55, 0.75)
+	)
 
-	# attack-tile highlight: selected piece, or placement preview under the mouse
 	var hl := {}
 	if pieces.has(selected):
 		hl = attack_tiles_for(selected)
 	elif build_type >= 0 and in_bounds(hover):
 		var ok: String = can_place(build_type, hover)
-		var prev_a: float = 0.45 if ok == "" else 0.55
+		var tile_r := Rect2(ORIGIN + Vector2(hover) * TILE, Vector2(TILE, TILE)).grow(-2)
+		var hover_col := DA.HOVER_OK if ok == "" else DA.HOVER_BAD
+		draw_rect(tile_r, hover_col)
+		draw_rect(tile_r, hover_col.lightened(0.2), false, 2.0)
+		var prev_a: float = 0.5 if ok == "" else 0.42
 		if P.is_tower(build_type) and ok == "":
 			for t in P.attack_tiles(build_type, hover, 1, Vector2i(COLS, ROWS), pieces):
 				hl[t] = true
-		_draw_piece_shape(build_type, cell_center(Vector2(hover)), 1, 1.0, 1.0, font, prev_a)
-		if ok != "":
-			var r := Rect2(ORIGIN + Vector2(hover) * TILE, Vector2(TILE, TILE)).grow(-2)
-			draw_rect(r, Color(0.9, 0.1, 0.1, 0.35))
-			draw_rect(r, Color(0.9, 0.15, 0.15, 0.9), false, 2.0)
+		_draw_piece_shape(build_type, cell_center(Vector2(hover)), 1, 1.0, 0.0, prev_a)
 	for t in hl:
-		draw_rect(Rect2(ORIGIN + Vector2(t) * TILE, Vector2(TILE, TILE)).grow(-3), Color(1, 0.2, 0.2, 0.28))
-		draw_circle(cell_center(Vector2(t)), 5, Color(0.8, 0.1, 0.1, 0.6))
+		var ar := Rect2(ORIGIN + Vector2(t) * TILE, Vector2(TILE, TILE)).grow(-4)
+		draw_rect(ar, DA.ATTACK_FILL)
+		draw_rect(ar, DA.ATTACK_RING, false, 1.5)
+		draw_circle(cell_center(Vector2(t)), 4.5, DA.ATTACK_RING)
 
 	for c in pieces:
 		var p = pieces[c]
-		_draw_piece_shape(p.type, cell_center(Vector2(c)), p.level, p.hp / p.max_hp, p.flash, font, 1.0)
+		_draw_piece_shape(p.type, cell_center(Vector2(c)), p.level, p.hp / p.max_hp, p.flash, 1.0)
 	if pieces.has(selected):
-		draw_rect(Rect2(ORIGIN + Vector2(selected) * TILE, Vector2(TILE, TILE)), Color(1, 1, 0.2), false, 3.0)
+		var sr := Rect2(ORIGIN + Vector2(selected) * TILE, Vector2(TILE, TILE)).grow(-3)
+		draw_rect(sr, DA.SELECT_RING, false, 3.0)
 
 	if not castling_used and has_king():
 		for c in castle_rooks_eligible():
-			var cr := Rect2(ORIGIN + Vector2(c) * TILE, Vector2(TILE, TILE)).grow(-4)
-			draw_rect(cr, Color(0.25, 0.55, 1.0, 0.35))
-			draw_rect(cr, Color(0.3, 0.65, 1.0, 0.95), false, 2.0)
+			var cr := Rect2(ORIGIN + Vector2(c) * TILE, Vector2(TILE, TILE)).grow(-5)
+			draw_rect(cr, DA.CASTLE_FILL)
+			draw_rect(cr, DA.CASTLE_BORDER, false, 2.0)
 
 	for m in mobs:
 		var cp := cell_center(m.pos)
 		var fill: Color = M.COLORS[m.mob_type]
-		M.draw_mob(self, cp, m.mob_type, fill, Color(0.1, 0, 0))
-		_draw_bar(cp + Vector2(-16, -22), 32, m.hp / m.max_hp, Color(0.9, 0.2, 0.2))
+		if m.flash > 0.0:
+			fill = fill.lerp(Color(1.0, 0.85, 0.7), clampf(m.flash / 0.18, 0.0, 0.7))
+		M.draw_mob(self, cp, m.mob_type, fill, Color(0.12, 0.08, 0.1), m.flash)
+		DA.draw_hp_bar(self, cp + Vector2(-18, -24), 36, m.hp / m.max_hp, Color(0.88, 0.22, 0.22))
 
 	for s in shots:
-		var col := Color(1, 0.3, 0.2, 0.9) if s.enemy else Color(1, 0.95, 0.3, 0.9)
-		draw_line(s.from, s.to, col, 3.0)
+		var col := Color(1, 0.35, 0.25, 0.95) if s.enemy else Color(1, 0.92, 0.42, 0.95)
+		draw_line(s.from, s.to, col.darkened(0.2), 5.0)
+		draw_line(s.from, s.to, col, 2.5)
+		draw_circle(s.to, 4.0, col)
 
 	if phase == Phase.GAME_OVER or phase == Phase.VICTORY:
-		var box := Rect2(ORIGIN + Vector2(0, 5 * TILE), Vector2(COLS * TILE, 2 * TILE))
-		draw_rect(box, Color(0, 0, 0, 0.75))
+		var box := Rect2(ORIGIN + Vector2(0, 4.5 * TILE), Vector2(COLS * TILE, 2.5 * TILE))
+		draw_rect(box, Color(0.05, 0.05, 0.07, 0.82))
+		draw_rect(box.grow(-4), DA.UI_BORDER, false, 2.0)
 		var head: String = PHASE_NAMES[phase]
-		draw_string(font, box.position + Vector2(0, 36), head, HORIZONTAL_ALIGNMENT_CENTER, box.size.x, 36, Color.WHITE)
-		draw_string(font, box.position + Vector2(0, 78), "Score: %d" % score, HORIZONTAL_ALIGNMENT_CENTER, box.size.x, 28, Color(1, 0.92, 0.45))
+		draw_string(font, box.position + Vector2(0, 40), head, HORIZONTAL_ALIGNMENT_CENTER, box.size.x, 34, DA.UI_TEXT)
+		draw_string(
+			font, box.position + Vector2(0, 84), "Score: %d" % score,
+			HORIZONTAL_ALIGNMENT_CENTER, box.size.x, 26, DA.UI_ACCENT
+		)
 
 
-func _draw_piece_shape(type: int, c: Vector2, level: int, hp_ratio: float, flash: float, font: Font, alpha: float) -> void:
+func _draw_piece_shape(type: int, c: Vector2, level: int, hp_ratio: float, flash: float, alpha: float) -> void:
 	var base: Color = P.COLORS[type]
-	base.a = alpha
-	if flash > 0.0:
-		base = base.lerp(Color(1, 0.2, 0.2, alpha), 0.6)
-	if type == P.WALL:
-		var r := Rect2(c - Vector2(24, 24), Vector2(48, 48))
-		draw_rect(r, base)
-		var line := Color(0.25, 0.25, 0.28, alpha)
-		for i in [1, 2]:
-			draw_line(r.position + Vector2(0, 16 * i), r.position + Vector2(48, 16 * i), line, 2.0)
-		draw_line(c + Vector2(0, -24), c + Vector2(0, -8), line, 2.0)
-		draw_line(c + Vector2(-12, -8), c + Vector2(-12, 8), line, 2.0)
-		draw_line(c + Vector2(12, -8), c + Vector2(12, 8), line, 2.0)
-		draw_line(c + Vector2(0, 8), c + Vector2(0, 24), line, 2.0)
-		draw_rect(r, line, false, 2.0)
-	else:
-		draw_circle(c, 22, base)
-		draw_arc(c, 22, 0, TAU, 32, Color(0.1, 0.1, 0.1, alpha), 2.0)
-		draw_string(font, c + Vector2(-TILE / 2, 10), P.LETTERS[type], HORIZONTAL_ALIGNMENT_CENTER, TILE, 28, Color(0.08, 0.08, 0.1, alpha))
-		for i in level:   # level pips
-			draw_circle(c + Vector2(-16 + i * 8, 19), 3, Color(1, 1, 1, alpha))
+	DA.draw_piece(self, c, type, base, alpha, flash)
+	if P.is_tower(type):
+		DA.draw_level_pips(self, c, level, alpha)
 	if hp_ratio < 1.0:
-		_draw_bar(c + Vector2(-22, -27), 44, hp_ratio, Color(0.2, 0.85, 0.3))
-
-
-func _draw_bar(p: Vector2, w: float, ratio: float, col: Color) -> void:
-	draw_rect(Rect2(p, Vector2(w, 4)), Color(0, 0, 0, 0.7))
-	draw_rect(Rect2(p, Vector2(w * clampf(ratio, 0.0, 1.0), 4)), col)
+		var bar_col := Color(0.25, 0.82, 0.38) if type != P.WALL else Color(0.55, 0.72, 0.82)
+		DA.draw_hp_bar(self, c + Vector2(-22, -30), 44, hp_ratio, bar_col)

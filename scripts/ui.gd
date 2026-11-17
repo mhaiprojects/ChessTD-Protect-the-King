@@ -3,6 +3,7 @@ extends CanvasLayer
 
 const P := preload("res://scripts/pieces.gd")
 const HS := preload("res://scripts/highscores.gd")
+const DA := preload("res://scripts/draw_art.gd")
 
 var game
 var lbl_stats: Label
@@ -20,23 +21,26 @@ var overlay_leaderboard: PanelContainer
 var lbl_final_body: Label
 var lbl_leaderboard_body: Label
 var _end_overlay_shown := false
+var _ui_styles: Dictionary = {}
 
 
 func _ready() -> void:
 	game = get_parent().get_node("Game")
+	_ui_styles = DA.make_ui_styles()
 	var panel := PanelContainer.new()
 	panel.position = Vector2(480, 16)
 	panel.custom_minimum_size = Vector2(264, 672)
+	panel.add_theme_stylebox_override("panel", _ui_styles.panel)
 	add_child(panel)
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 6)
+	v.add_theme_constant_override("separation", 8)
 	panel.add_child(v)
 
-	v.add_child(_label("CHESS TOWER DEFENSE", 18))
+	v.add_child(_label("CHESS TOWER DEFENSE", 18, true))
 	lbl_stats = _label("", 15)
 	v.add_child(lbl_stats)
 	v.add_child(HSeparator.new())
-	v.add_child(_label("Build (click a tile on your side):", 13))
+	v.add_child(_label("Build (click a tile on your side):", 13, false))
 	var grid := GridContainer.new()
 	grid.columns = 2
 	v.add_child(grid)
@@ -71,12 +75,17 @@ func _ready() -> void:
 	v.add_child(btn_castle)
 	v.add_child(HSeparator.new())
 	lbl_msg = _label("", 13)
-	lbl_msg.modulate = Color(1, 0.9, 0.5)
+	lbl_msg.add_theme_color_override("font_color", Color(0.98, 0.86, 0.52))
 	v.add_child(lbl_msg)
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	v.add_child(spacer)
-	v.add_child(_label("Left-click: place / select   Right-click/Esc: cancel\nRed tiles = selected piece's attack squares.", 11))
+	v.add_child(
+		_label(
+			"Left-click: place / select   Right-click/Esc: cancel\nAttack squares highlight in red.",
+			11, false, DA.UI_TEXT_DIM
+		)
+	)
 	btn_leaderboard = _button("Leaderboard [L]")
 	btn_leaderboard.pressed.connect(toggle_leaderboard)
 	v.add_child(btn_leaderboard)
@@ -95,12 +104,13 @@ func _ready() -> void:
 	overlay_leaderboard.get_child(0).add_child(lb_close)
 
 
-func _label(text: String, size: int) -> Label:
+func _label(text: String, size: int, title: bool = false, col: Color = DA.UI_TEXT) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.add_theme_font_size_override("font_size", size)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.custom_minimum_size.x = 240
+	l.custom_minimum_size.x = 232
+	l.add_theme_color_override("font_color", DA.UI_ACCENT if title else col)
 	return l
 
 
@@ -113,15 +123,8 @@ func _overlay_panel(pos: Vector2, size: Vector2) -> PanelContainer:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
 	p.add_child(box)
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.08, 0.08, 0.1, 0.92)
-	style.border_color = Color(0.55, 0.52, 0.48)
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(4)
-	style.content_margin_left = 12
-	style.content_margin_right = 12
-	style.content_margin_top = 10
-	style.content_margin_bottom = 10
+	var style: StyleBoxFlat = DA.make_ui_styles().panel.duplicate()
+	style.bg_color = Color(0.06, 0.07, 0.09, 0.94)
 	p.add_theme_stylebox_override("panel", style)
 	return p
 
@@ -147,7 +150,7 @@ func toggle_leaderboard() -> void:
 
 
 func _refresh_leaderboard_text() -> void:
-	var lines: PackedStringArray = ["TOP SCORES (local)", ""]
+	var lines: PackedStringArray = ["TOP SCORES (local)", " #   SCORE  WAVE  RESULT  DATE", ""]
 	var rows := HS.load_entries()
 	if rows.is_empty():
 		lines.append("No scores yet — finish a run!")
@@ -189,6 +192,14 @@ func _button(text: String) -> Button:
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.add_theme_stylebox_override("normal", _ui_styles.btn_normal)
+	b.add_theme_stylebox_override("hover", _ui_styles.btn_hover)
+	b.add_theme_stylebox_override("pressed", _ui_styles.btn_pressed)
+	b.add_theme_stylebox_override("disabled", _ui_styles.btn_disabled)
+	b.add_theme_color_override("font_color", DA.UI_TEXT)
+	b.add_theme_color_override("font_hover_color", DA.UI_TEXT)
+	b.add_theme_color_override("font_pressed_color", DA.UI_ACCENT)
+	b.add_theme_color_override("font_disabled_color", DA.UI_TEXT_DIM)
 	return b
 
 

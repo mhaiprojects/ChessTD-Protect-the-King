@@ -117,6 +117,8 @@ func _process(_delta: float) -> void:
 			info += "\nDamage %.1f every %.1fs" % [P.damage(p.type, p.level), P.COOLDOWN[p.type]]
 			if p.level < P.MAX_LEVEL:
 				info += "  (next: %.1f)" % P.damage(p.type, p.level + 1)
+		elif p.type == P.WALL and p.level < P.MAX_LEVEL:
+			info += "\nNext upgrade: HP %d" % ceili(P.max_hp(P.WALL, p.level + 1))
 		if p.level < P.MAX_LEVEL:
 			info += "\nUpgrade cost: %dg" % P.upgrade_cost(p.type, p.level)
 		else:

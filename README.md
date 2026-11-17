@@ -23,30 +23,43 @@ chess-td/
 ├── scenes/main.tscn       # Main(Node) -> Game(Node2D, game.gd) + UI(CanvasLayer, ui.gd)
 ├── scripts/
 │   ├── pieces.gd          # piece stats + pure chess attack-pattern functions
+│   ├── mobs.gd            # mob types, 20-wave spawn table, stats, draw shapes
 │   ├── game.gd            # board state, placement, waves, mob AI (A*), combat, input, _draw()
 │   └── ui.gd              # side-panel HUD built in code (stats, build palette, buttons)
 ├── tests/
 │   ├── test_runner.gd     # headless test suite (patterns, placement, waves, combat, UI)
-│   ├── autoplay.gd        # greedy bot that plays 10 waves (balance check)
+│   ├── autoplay.gd        # greedy bot balance check (up to 20 waves)
 │   └── screenshot.gd      # renders a mid-wave frame to PNG
 └── docs/screenshot.png
 ```
 
 ## How to play
 
-1. **Setup phase** - arrange the starting board however you like on your side (rows 4-12; the
-   reddish top 3 rows are the enemy spawn zone). The **King is mandatory and unique**; it is free
-   and you can remove/re-place it until the first wave starts.
-2. Buy towers/walls with gold (start: 200g). Press **Start Wave**.
-3. Mobs (red triangles) spawn at the top and walk down toward your King using A* pathfinding.
-   They go around your pieces, but if the King is completely walled in they smash through
-   the cheapest route instead (no soft-locks). They hit the King when next to it, any piece
-   blocking their path, and other pieces adjacent to them as they pass.
-4. Towers fire automatically at mobs standing on their attack squares; killing a mob gives gold,
-   clearing a wave gives a bonus. You can place, upgrade and sell at any time (also mid-wave).
-5. King HP is your "lives": King destroyed = **Game Over**. Survive 10 waves = **Victory**.
+1. **Setup phase** — arrange the starting board on your side (rows 4–12; the reddish top 3 rows are the enemy spawn zone). The **King is mandatory and unique**; it is free and can be moved or removed until the first wave starts.
+2. Buy towers and walls with gold (start: **200g**). Press **Start Wave** (or Space).
+3. **Enemy mobs** spawn at the top and path toward your King using A* pathfinding. Mobs go around your pieces when a route exists. If completely boxed in, they fall back to smashing through the cheapest line (no soft-locks).
+4. Towers shoot automatically at mobs on their chess attack squares. Kills and wave bonuses grant gold. Place, upgrade, and sell anytime (including mid-wave).
+5. King HP is your lives — King destroyed = **Game Over**. Clear **all 20 waves** = **Victory**.
 
-### Pieces
+### Enemy mob types
+
+| Type | Shape / colour | Role |
+|---|---|---|
+| **Grunt** | Red triangle | Baseline HP, speed, and damage |
+| **Runner** | Orange diamond | Fast, low HP, low damage |
+| **Brute** | Dark red square | Slow, high HP, heavy hits (extra wall damage) |
+| **Sapper** | Purple hexagon | Prefers attacking walls |
+
+Each type pays different gold on kill. Wave composition mixes types according to the data table in `mobs.gd` (`WAVE_DEFS`).
+
+### Placement rules
+
+* Cannot build in the top 3 rows (spawn zone).
+* **Tower gap rule:** new **towers** or **walls** cannot be placed on any of the 8 tiles around an existing **tower** (any chess piece, including the King). **Walls may touch other walls.**
+* **Path rule:** placement must leave at least one path from the spawn zone (rows 0–2) to the King, treating your pieces/walls as blocked. Otherwise placement is rejected with HUD feedback. The same check applies when placing the King in setup.
+* Hovering with a build type selected shows a **red invalid preview** and the reason in the message line when placement is illegal.
+
+### Pieces (towers)
 
 | Piece | Cost | Attacks (chess move pattern) |
 |---|---|---|
@@ -55,28 +68,26 @@ chess-td/
 | Rook (R)   | 60  | horizontal / vertical lines |
 | Bishop (B) | 50  | diagonal lines |
 | Knight (N) | 45  | L-jumps (jumps over pieces) |
-| Pawn (P)   | 20  | the two forward-diagonal capture squares (forward = toward the mobs) |
-| Wall (#)   | 10  | none - 100 HP blocker |
+| Pawn (P)   | 20  | two forward-diagonal capture squares (toward the mobs) |
+| Wall (#)   | 10  | none — HP blocker |
 
-Sliding pieces (R/B/Q) are blocked by your own pieces/walls like in chess and have a max range
-of `2 + level` squares (3 at L1 up to 7 at L5). Upgrades (L1-L5) add +60% base damage per level and
-+25% HP (walls +50% HP). Sell refunds 50% of everything spent.
+Sliding pieces (R/B/Q) are blocked by your own pieces/walls and have max range `2 + level` squares (3 at L1 up to 7 at L5). **Upgrades (L1–L5):** select a piece, press **U** or the Upgrade button; cost scales per level (shown in the HUD), towers gain +60% base damage per level and +25% HP, **walls gain +50% HP per level**. Level pips are drawn under each piece. Sell refunds 50% of everything spent.
 
 ### Controls
 
 | Input | Action |
 |---|---|
 | Left click empty tile | place the selected build type |
-| Left click a piece | select it (its attack squares are highlighted red) |
+| Left click a piece | select it (attack squares highlighted red) |
 | Right click / Esc | cancel selection / build type |
-| 1-7 | build King, Queen, Rook, Bishop, Knight, Pawn, Wall |
+| 1–7 | build King, Queen, Rook, Bishop, Knight, Pawn, Wall |
 | U / S (Del) | upgrade / sell selected piece |
 | Space / Enter | start next wave |
 
-Hovering a tile with a tower type selected previews the piece and its attack squares.
+Hovering with a tower type selected previews the piece and its attack squares (when legal).
 
 ## Limitations (PoC)
 
-* Single mob type; balance is rough (difficulty ramps up: +25% HP and +2 mobs per wave).
-* Mobs may overlap on a tile; towers hit one target per shot (the mob closest to the King side).
-* No sound, saves, or menus; HUD is built from default Godot controls.
+* Towers hit one mob per shot (closest to the King’s side among valid targets).
+* No sound, saves, or menus beyond the in-code HUD.
+* Balance is tuned via `tests/autoplay.gd`; difficulty ramps gently across 20 waves.

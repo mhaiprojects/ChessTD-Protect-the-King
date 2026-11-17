@@ -407,12 +407,11 @@ func test_combat_gold_upgrade() -> void:
 	g.gold = 10000
 	for i in 10: g.upgrade(Vector2i(3, 8))
 	check(rook.level == P.MAX_LEVEL, "Upgrades cap at level %d" % P.MAX_LEVEL)
-	var wall = g.place(P.WALL, Vector2i(1, 8))
-	g.place(P.WALL, Vector2i(1, 8))
-	var w = g.pieces[Vector2i(1, 8)]
+	check(g.place(P.WALL, Vector2i(1, 7)), "Place wall for upgrade test")
+	var w = g.pieces[Vector2i(1, 7)]
 	var w_hp0: float = w.max_hp
 	g.gold = 500
-	check(g.upgrade(Vector2i(1, 8)) and w.level == 2 and w.max_hp > w_hp0, "Wall upgrade raises max HP")
+	check(g.upgrade(Vector2i(1, 7)) and w.level == 2 and w.max_hp > w_hp0, "Wall upgrade raises max HP")
 	# each tower type hits only in-pattern: bishop vs orthogonal / diagonal mob
 	var g2 = new_game()
 	g2.place(P.KING, Vector2i(0, 11))

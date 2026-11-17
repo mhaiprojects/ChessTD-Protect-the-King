@@ -124,4 +124,8 @@ func _process(_delta: float) -> void:
 		lbl_sel.text = info
 		btn_upgrade.disabled = p.level >= P.MAX_LEVEL or game.gold < P.upgrade_cost(p.type, p.level)
 		btn_sell.disabled = p.type == P.KING and game.phase != game.Phase.SETUP
-	lbl_msg.text = game.last_message
+	if game.build_type >= 0 and game.in_bounds(game.hover):
+		var err: String = game.can_place(game.build_type, game.hover)
+		lbl_msg.text = err if err != "" else game.last_message
+	else:
+		lbl_msg.text = game.last_message

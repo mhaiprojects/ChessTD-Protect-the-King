@@ -152,6 +152,14 @@ func attack_tiles_for(c: Vector2i) -> Dictionary:
 
 # ---------------------------------------------------------------- player actions
 
+func _tower_adjacent(c: Vector2i) -> bool:
+	for d in P.ORTHO + P.DIAG:
+		var n: Vector2i = c + d
+		if pieces.has(n) and P.is_tower(pieces[n].type):
+			return true
+	return false
+
+
 func can_place(type: int, c: Vector2i) -> String:
 	if phase == Phase.GAME_OVER or phase == Phase.VICTORY:
 		return "Game is over - press Restart."
@@ -166,6 +174,8 @@ func can_place(type: int, c: Vector2i) -> String:
 	for m in mobs:
 		if m.alive and (m.cell == c or m.target == c or m.tile() == c):
 			return "A mob is on that tile."
+	if _tower_adjacent(c):
+		return "Too close to a tower — leave a one-tile gap."
 	if gold < P.COST[type]:
 		return "Not enough gold (%d needed)." % P.COST[type]
 	return ""
@@ -531,10 +541,17 @@ func _draw() -> void:
 	var hl := {}
 	if pieces.has(selected):
 		hl = attack_tiles_for(selected)
-	elif build_type >= 0 and P.is_tower(build_type) and in_bounds(hover) and can_place(build_type, hover) == "":
-		for t in P.attack_tiles(build_type, hover, 1, Vector2i(COLS, ROWS), pieces):
-			hl[t] = true
-		_draw_piece_shape(build_type, cell_center(Vector2(hover)), 1, 1.0, 1.0, font, 0.45)
+	elif build_type >= 0 and in_bounds(hover):
+		var ok: String = can_place(build_type, hover)
+		var prev_a: float = 0.45 if ok == "" else 0.55
+		if P.is_tower(build_type) and ok == "":
+			for t in P.attack_tiles(build_type, hover, 1, Vector2i(COLS, ROWS), pieces):
+				hl[t] = true
+		_draw_piece_shape(build_type, cell_center(Vector2(hover)), 1, 1.0, 1.0, font, prev_a)
+		if ok != "":
+			var r := Rect2(ORIGIN + Vector2(hover) * TILE, Vector2(TILE, TILE)).grow(-2)
+			draw_rect(r, Color(0.9, 0.1, 0.1, 0.35))
+			draw_rect(r, Color(0.9, 0.15, 0.15, 0.9), false, 2.0)
 	for t in hl:
 		draw_rect(Rect2(ORIGIN + Vector2(t) * TILE, Vector2(TILE, TILE)).grow(-3), Color(1, 0.2, 0.2, 0.28))
 		draw_circle(cell_center(Vector2(t)), 5, Color(0.8, 0.1, 0.1, 0.6))

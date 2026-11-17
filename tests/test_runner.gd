@@ -55,6 +55,7 @@ func _run() -> void:
 	test_patterns()
 	print("== Placement / setup ==")
 	test_placement()
+	test_tower_adjacency()
 	print("== Mob types ==")
 	test_mob_types()
 	print("== Difficulty curve ==")
@@ -177,16 +178,28 @@ func test_placement() -> void:
 	check(not g.place(P.PAWN, Vector2i(3, 11)), "Occupied tile rejected")
 	check(g.place(P.ROOK, Vector2i(3, 8)) and g.gold == 140, "Place Rook (-60 gold)")
 	check(g.place(P.WALL, Vector2i(2, 6)) and g.gold == 130, "Place Wall (-10 gold)")
-	check(g.place(P.PAWN, Vector2i(5, 9)) and g.gold == 110, "Place Pawn (-20 gold)")
+	check(g.place(P.PAWN, Vector2i(5, 7)) and g.gold == 110, "Place Pawn (-20 gold)")
 	g.gold = 5
 	check(not g.place(P.QUEEN, Vector2i(6, 9)), "Not enough gold rejected")
 	g.gold = 110
 	check(g.sell(Vector2i(3, 11)) and not g.has_king(), "King can be removed during setup")
-	check(g.place(P.KING, Vector2i(4, 10)) and g.king_cell == Vector2i(4, 10), "King re-placed elsewhere (free arrangement)")
+	check(g.place(P.KING, Vector2i(6, 10)) and g.king_cell == Vector2i(6, 10), "King re-placed elsewhere (free arrangement)")
 	check(g.sell(Vector2i(3, 8)) and g.gold == 140, "Sell Rook refunds 50%")
 	check(g.start_wave() and g.phase == g.Phase.WAVE and g.wave == 1, "Start wave 1")
-	check(not g.sell(Vector2i(4, 10)), "King locked once waves start")
-	check(g.place(P.BISHOP, Vector2i(1, 9)), "Can place towers during a wave")
+	check(not g.sell(Vector2i(6, 10)), "King locked once waves start")
+	check(g.place(P.BISHOP, Vector2i(0, 9)), "Can place towers during a wave")
+	g.free()
+
+
+func test_tower_adjacency() -> void:
+	var g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(3, 8))
+	check(not g.place(P.PAWN, Vector2i(3, 7)), "Cannot place tower adjacent to Rook")
+	check(not g.place(P.WALL, Vector2i(4, 8)), "Cannot place wall adjacent to tower")
+	check(g.place(P.WALL, Vector2i(3, 6)), "May place wall two tiles from tower")
+	check(g.place(P.WALL, Vector2i(2, 6)) and g.place(P.WALL, Vector2i(1, 6)), "Walls may touch other walls")
+	check(g.can_place(P.BISHOP, Vector2i(4, 8)) != "", "can_place reports adjacency violation")
 	g.free()
 
 
@@ -379,9 +392,9 @@ func test_combat_gold_upgrade() -> void:
 func test_full_wave() -> void:
 	var g = new_game()
 	g.place(P.KING, Vector2i(3, 11))
-	g.place(P.QUEEN, Vector2i(4, 9))
-	g.place(P.ROOK, Vector2i(2, 9))
-	g.place(P.PAWN, Vector2i(3, 8))
+	g.place(P.ROOK, Vector2i(1, 9))
+	g.place(P.QUEEN, Vector2i(5, 9))
+	g.place(P.PAWN, Vector2i(7, 8))
 	check(g.gold == 0, "Spent all starting gold on a defence")
 	for w in 3:
 		check(g.start_wave(), "Start wave %d" % (w + 1))
@@ -394,9 +407,9 @@ func test_full_wave() -> void:
 		var spent := true
 		while spent:
 			spent = false
-			for cell in [Vector2i(3, 8), Vector2i(2, 9), Vector2i(4, 9)]:
+			for cell in [Vector2i(7, 8), Vector2i(1, 9), Vector2i(5, 9)]:
 				if g.upgrade(cell): spent = true
-	print("        after 3 waves: gold=%d kills=%d gold_from_kills=%d levels P%d R%d Q%d" % [g.gold, g.kills, g.gold_from_kills, g.pieces[Vector2i(3, 8)].level, g.pieces[Vector2i(2, 9)].level, g.pieces[Vector2i(4, 9)].level])
+	print("        after 3 waves: gold=%d kills=%d gold_from_kills=%d levels P%d R%d Q%d" % [g.gold, g.kills, g.gold_from_kills, g.pieces[Vector2i(7, 8)].level, g.pieces[Vector2i(1, 9)].level, g.pieces[Vector2i(5, 9)].level])
 	g.free()
 
 

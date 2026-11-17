@@ -281,9 +281,11 @@ func step(dt: float) -> void:
 	if phase == Phase.WAVE and spawn_left > 0:
 		spawn_timer -= dt
 		if spawn_timer <= 0.0:
-			spawn_timer = SPAWN_INTERVAL
-			spawn_left -= 1
-			spawn_mob(Vector2i(rng.randi_range(0, COLS - 1), 0))
+			if _try_spawn_wave_mob():
+				spawn_timer = SPAWN_INTERVAL
+				spawn_left -= 1
+			else:
+				spawn_timer = 0.0
 	for m in mobs.duplicate():
 		if m.alive:
 			_update_mob(m, dt)
@@ -302,11 +304,50 @@ func step(dt: float) -> void:
 			_msg("Wave %d cleared! +%d bonus gold. Build, then start the next wave." % [wave, bonus])
 
 
+func _mob_claims_tile(m, c: Vector2i) -> bool:
+	return m.alive and (m.cell == c or m.target == c)
+
+
+func _tile_occupied_by_mob(c: Vector2i, ignore = null) -> bool:
+	for m in mobs:
+		if m != ignore and _mob_claims_tile(m, c):
+			return true
+	return false
+
+
+func _try_spawn_wave_mob() -> bool:
+	var order: Array = []
+	for x in COLS:
+		order.append(x)
+	for i in COLS:
+		var j := i + rng.randi_range(0, COLS - 1 - i)
+		var tmp: int = order[i]
+		order[i] = order[j]
+		order[j] = tmp
+	for x in order:
+		var c := Vector2i(x, 0)
+		if not _tile_occupied_by_mob(c):
+			spawn_mob(c)
+			return true
+	return false
+
+
 ## Next tile on the weighted A* path from `c` to the King (or `c` if none).
-func next_step(c: Vector2i) -> Vector2i:
+## Other mobs' tiles are treated as blocked so followers can sidestep when possible.
+func next_step(c: Vector2i, ignore = null) -> Vector2i:
 	if not has_king() or c == king_cell:
 		return c
+	var blocked: Array = []
+	for m in mobs:
+		if m == ignore or not m.alive:
+			continue
+		for t in [m.cell, m.target]:
+			if in_bounds(t) and not blocked.has(t):
+				astar.set_point_solid(t, true)
+				blocked.append(t)
 	var path := astar.get_id_path(c, king_cell)
+	for t in blocked:
+		astar.set_point_solid(t, false)
 	if path.size() >= 2:
 		return path[1]
 	return c
@@ -316,10 +357,12 @@ func _update_mob(m, dt: float) -> void:
 	m.atk_cd -= dt
 	var blocker := Vector2i(-1, -1)
 	if m.target == m.cell:
-		var nxt := next_step(m.cell)
+		var nxt := next_step(m.cell, m)
 		if nxt != m.cell:
 			if pieces.has(nxt):
 				blocker = nxt          # path goes through a piece (the King, or a wall when boxed in)
+			elif _tile_occupied_by_mob(nxt, m):
+				pass                   # wait for the tile to clear
 			else:
 				m.target = nxt
 	if m.target != m.cell:

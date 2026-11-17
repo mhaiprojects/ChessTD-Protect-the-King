@@ -56,6 +56,8 @@ func _run() -> void:
 	test_placement()
 	print("== Waves, mob movement & pathfinding ==")
 	test_wave_and_movement()
+	print("== Mob tile occupation ==")
+	test_mob_tile_occupation()
 	print("== Mobs attack pieces ==")
 	test_mob_attacks()
 	print("== Combat, gold, upgrades ==")
@@ -173,6 +175,55 @@ func test_wave_and_movement() -> void:
 	for c in g.pieces:
 		if g.pieces[c].type == P.WALL: walls += 1
 	check(walls < 8 and mob.cell.y >= 7, "Fully blocked path: mob breaks through a wall (walls left %d)" % walls)
+	g.free()
+
+
+func mob_claim_count(g, c: Vector2i) -> int:
+	var n := 0
+	for m in g.mobs:
+		if m.alive and (m.cell == c or m.target == c):
+			n += 1
+	return n
+
+
+func test_mob_tile_occupation() -> void:
+	var g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	for x in 8:
+		g.spawn_mob(Vector2i(x, 0), 100000.0).speed = 0.0
+	g.start_wave()
+	var left0: int = g.spawn_left
+	run_for(g, 3.0)
+	check(g.spawn_left == left0 and g.mobs.size() == 8, "Spawn waits while every spawn tile is busy")
+	g.mobs[0].speed = 1.0 + 0.05 * g.wave
+	run_for(g, 6.0)
+	check(g.spawn_left < left0 and g.mobs.size() > 8, "Spawn resumes once a spawn tile opens")
+	for m in g.mobs:
+		if m.alive:
+			check(mob_claim_count(g, m.cell) == 1, "At most one mob claims cell %s" % m.cell)
+	g.free()
+
+	g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	var a = g.spawn_mob(Vector2i(3, 0), 100000.0)
+	var b = g.spawn_mob(Vector2i(3, 1), 100000.0)
+	a.speed = 0.4
+	b.speed = 0.4
+	run_for(g, 12.0, 0.05)
+	var stacked := false
+	for c in [Vector2i(3, 2), Vector2i(3, 3), Vector2i(3, 4), Vector2i(3, 5), Vector2i(3, 6)]:
+		if mob_claim_count(g, c) > 1:
+			stacked = true
+	check(not stacked, "Single-file column: mobs do not share a tile")
+	check(a.cell.y >= 2 and b.cell.y >= 1, "Trailing mob queues behind leader (y %d, %d)" % [a.cell.y, b.cell.y])
+	g.free()
+
+	g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	g.start_wave()
+	run_for(g, 120.0, 0.05, func(): return g.spawn_left == 0 and g.mobs.is_empty())
+	check(g.phase == g.Phase.BETWEEN, "Wave clears without spawn deadlock")
+	check(g.kills == 6, "All wave-1 mobs killed while respecting tile caps")
 	g.free()
 
 

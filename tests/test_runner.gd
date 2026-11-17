@@ -5,6 +5,8 @@ extends SceneTree
 const P := preload("res://scripts/pieces.gd")
 const M := preload("res://scripts/mobs.gd")
 const GameScript := preload("res://scripts/game.gd")
+const SC := preload("res://scripts/scoring.gd")
+const HS := preload("res://scripts/highscores.gd")
 const SIZE := Vector2i(8, 12)
 
 var passed := 0
@@ -12,7 +14,11 @@ var failed := 0
 
 
 func _initialize() -> void:
+	_clear_hs_test_file()
+	HS.set_save_path(_hs_test_path())
 	_run()
+	HS.reset_save_path()
+	_clear_hs_test_file()
 
 
 func check(cond: bool, name: String) -> void:
@@ -77,6 +83,8 @@ func _run() -> void:
 	test_combat_gold_upgrade()
 	print("== Full wave simulation ==")
 	test_full_wave()
+	print("== Score & leaderboard ==")
+	test_scoring_and_highscores()
 	print("== Main scene + UI + mouse input ==")
 	await test_scene()
 	print("\nRESULT: %d passed, %d failed" % [passed, failed])
@@ -368,9 +376,10 @@ func test_mob_attacks() -> void:
 	check(king.hp < king.max_hp, "Mob targets and attacks the King (hp %.0f)" % king.hp)
 	run_for(g, 150.0, 0.05, func(): return g.phase == g.Phase.GAME_OVER)
 	check(g.phase == g.Phase.GAME_OVER and not g.has_king(), "King destroyed -> GAME OVER")
+	check(g.score >= 0 and g.match_result == "loss", "Game over sets match result and score")
 	check(not g.place(P.PAWN, Vector2i(1, 9)), "No building after game over")
 	g.reset()
-	check(g.phase == g.Phase.SETUP and g.pieces.is_empty() and g.gold == 200, "Restart resets the game")
+	check(g.phase == g.Phase.SETUP and g.pieces.is_empty() and g.gold == 200 and g.score == 0, "Restart resets the game")
 	g.free()
 
 
@@ -566,13 +575,82 @@ func test_full_wave() -> void:
 	g.free()
 
 
+func _hs_test_path() -> String:
+	return "user://_test_highscores_runner.json"
+
+
+func _clear_hs_test_file() -> void:
+	var p := _hs_test_path()
+	if FileAccess.file_exists(p):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
+
+
+func test_scoring_and_highscores() -> void:
+	check(SC.kill_points(M.GRUNT, 1) == 11, "Grunt kill score wave 1")
+	check(SC.kill_points(M.PROMOTED, 3) > SC.kill_points(M.GRUNT, 3), "Promoted worth more than Grunt")
+	check(SC.kill_points(M.BRUTE, 2) > SC.kill_points(M.RUNNER, 2), "Brute worth more than Runner")
+	check(SC.wave_clear_points(5) == 50, "Wave 5 clear score bonus")
+	check(SC.final_score(80, 50) == 130, "Final score sums kill and wave parts")
+
+	var g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(3, 8))
+	var rook = g.pieces[Vector2i(3, 8)]
+	rook.cd = 0.0
+	g.wave = 2
+	var brute = g.spawn_mob(Vector2i(3, 6), 1.0, M.BRUTE)
+	brute.speed = 0.0
+	var pts: int = SC.kill_points(M.BRUTE, 2)
+	g.step(0.01)
+	check(g.score_from_kills == pts and g.score == pts, "Kill adds mob-type score to match")
+	g.free()
+
+	g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	g.wave = 1
+	g.phase = g.Phase.WAVE
+	g.spawn_left = 0
+	g.mobs.clear()
+	var wpts := SC.wave_clear_points(1)
+	g.step(0.05)
+	check(g.score_from_waves == wpts and g.score == wpts, "Wave clear adds score bonus")
+	g.free()
+
+	g = new_game()
+	g.place(P.KING, Vector2i(0, 11))
+	var king = g.pieces[g.king_cell]
+	king.hp = 0.01
+	g.spawn_mob(Vector2i(0, 10), 100000.0).speed = 0.0
+	run_for(g, 3.0)
+	check(g.phase == g.Phase.GAME_OVER and g.match_result == "loss" and g._match_recorded, "Game over records loss")
+	g.free()
+
+	_clear_hs_test_file()
+	HS.add_entry(50, 1, "loss", "2020-01-01 12:00:00")
+	HS.add_entry(200, 10, "win", "2021-06-15 08:30:00")
+	HS.add_entry(120, 4, "loss", "2022-03-03 18:45:00")
+	var loaded := HS.load_entries()
+	check(loaded.size() == 3 and int(loaded[0].score) == 200, "High scores sorted by score descending")
+	var sorted := HS.sort_entries([
+		{"score": 10, "waves": 1, "result": "loss", "datetime": "a"},
+		{"score": 99, "waves": 2, "result": "win", "datetime": "b"},
+		{"score": 50, "waves": 5, "result": "loss", "datetime": "c"},
+	])
+	check(int(sorted[0].score) == 99 and int(sorted[1].score) == 50, "sort_entries orders high to low")
+	for i in 12:
+		HS.add_entry(i * 10, 1, "loss", "t%d" % i)
+	check(HS.load_entries().size() == 10, "Leaderboard trims to top 10")
+	check(HS.save_entries([{"score": 1, "waves": 1, "result": "win", "datetime": "x"}]), "save_entries writes JSON")
+	check(FileAccess.file_exists(_hs_test_path()), "High score file created at override path")
+
+
 func test_scene() -> void:
 	var scene = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
 	for i in 3: await process_frame
 	var g = scene.get_node("Game")
 	var ui = scene.get_node("UI")
-	check(g != null and ui.build_buttons.size() == 7 and ui.btn_start != null, "Main scene loads with HUD (7 build buttons)")
+	check(g != null and ui.build_buttons.size() == 7 and ui.btn_start != null and ui.btn_leaderboard != null, "Main scene loads with HUD (7 build buttons)")
 	# Simulate a real left click on tile (3,11) with King selected
 	var ev := InputEventMouseButton.new()
 	ev.button_index = MOUSE_BUTTON_LEFT

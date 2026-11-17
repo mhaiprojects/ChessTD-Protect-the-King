@@ -4,6 +4,8 @@ extends Node2D
 
 const P := preload("res://scripts/pieces.gd")
 const M := preload("res://scripts/mobs.gd")
+const SC := preload("res://scripts/scoring.gd")
+const HS := preload("res://scripts/highscores.gd")
 
 const COLS := 8
 const ROWS := 12
@@ -70,7 +72,12 @@ var spawn_types: Array = []     # mob type per remaining spawn (same length as s
 var wave_hp := 18.0              # legacy default HP for tests that override hp only
 var kills := 0
 var gold_from_kills := 0
+var score := 0
+var score_from_kills := 0
+var score_from_waves := 0
+var match_result := ""          # "", "win", or "loss" after first end
 var last_message := ""
+var _match_recorded := false
 var castling_used := false
 var rng := RandomNumberGenerator.new()
 var astar := AStarGrid2D.new()
@@ -102,6 +109,11 @@ func reset() -> void:
 	spawn_types.clear()
 	kills = 0
 	gold_from_kills = 0
+	score = 0
+	score_from_kills = 0
+	score_from_waves = 0
+	match_result = ""
+	_match_recorded = false
 	castling_used = false
 	_board_changed()
 	_msg("Setup: place your King (mandatory), then towers and walls. Press Start Wave.")
@@ -111,6 +123,22 @@ func reset() -> void:
 
 func _msg(t: String) -> void:
 	last_message = t
+
+
+func _refresh_score() -> void:
+	score = SC.final_score(score_from_kills, score_from_waves)
+
+
+func _record_match_end() -> void:
+	if _match_recorded:
+		return
+	_match_recorded = true
+	_refresh_score()
+	if phase == Phase.VICTORY:
+		match_result = "win"
+	else:
+		match_result = "loss"
+	HS.add_entry(score, wave, match_result)
 
 
 func in_bounds(c: Vector2i) -> bool:
@@ -487,12 +515,16 @@ func step(dt: float) -> void:
 	if phase == Phase.WAVE and spawn_left == 0 and mobs.is_empty():
 		var bonus := M.wave_clear_bonus(wave)
 		gold += bonus
+		var wp := SC.wave_clear_points(wave)
+		score_from_waves += wp
+		_refresh_score()
 		if wave >= MAX_WAVES:
 			phase = Phase.VICTORY
-			_msg("VICTORY! All %d waves cleared." % MAX_WAVES)
+			_msg("VICTORY! All %d waves cleared. Final score: %d." % [MAX_WAVES, score])
+			_record_match_end()
 		else:
 			phase = Phase.BETWEEN
-			_msg("Wave %d cleared! +%d bonus gold. Build, then start the next wave." % [wave, bonus])
+			_msg("Wave %d cleared! +%d bonus gold, +%d score. Build, then start the next wave." % [wave, bonus, wp])
 
 
 func _mob_claims_tile(m, c: Vector2i) -> bool:
@@ -614,7 +646,9 @@ func _damage_piece(p, amount: float) -> void:
 	if p.type == P.KING:
 		king_cell = Vector2i(-1, -1)
 		phase = Phase.GAME_OVER
-		_msg("Your King has fallen - GAME OVER (wave %d). Press Restart." % wave)
+		_refresh_score()
+		_msg("Your King has fallen - GAME OVER (wave %d). Score: %d. Press Restart." % [wave, score])
+		_record_match_end()
 	else:
 		_msg("Your %s was destroyed!" % P.NAMES[p.type])
 	_board_changed()
@@ -643,6 +677,9 @@ func _update_towers(dt: float) -> void:
 			gold += best.reward
 			gold_from_kills += best.reward
 			kills += 1
+			var pts := SC.kill_points(best.mob_type, maxi(wave, 1))
+			score_from_kills += pts
+			_refresh_score()
 
 
 # ---------------------------------------------------------------- input
@@ -747,7 +784,9 @@ func _draw() -> void:
 	if phase == Phase.GAME_OVER or phase == Phase.VICTORY:
 		var box := Rect2(ORIGIN + Vector2(0, 5 * TILE), Vector2(COLS * TILE, 2 * TILE))
 		draw_rect(box, Color(0, 0, 0, 0.75))
-		draw_string(font, box.position + Vector2(0, 70), PHASE_NAMES[phase], HORIZONTAL_ALIGNMENT_CENTER, box.size.x, 40, Color.WHITE)
+		var head: String = PHASE_NAMES[phase]
+		draw_string(font, box.position + Vector2(0, 36), head, HORIZONTAL_ALIGNMENT_CENTER, box.size.x, 36, Color.WHITE)
+		draw_string(font, box.position + Vector2(0, 78), "Score: %d" % score, HORIZONTAL_ALIGNMENT_CENTER, box.size.x, 28, Color(1, 0.92, 0.45))
 
 
 func _draw_piece_shape(type: int, c: Vector2, level: int, hp_ratio: float, flash: float, font: Font, alpha: float) -> void:

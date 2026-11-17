@@ -25,6 +25,8 @@ chess-td/
 │   ├── pieces.gd          # piece stats + pure chess attack-pattern functions
 │   ├── mobs.gd            # mob types, 20-wave spawn table, stats, draw shapes
 │   ├── game.gd            # board state, placement, waves, mob AI (A*), combat, input, _draw()
+│   ├── scoring.gd         # match score (kills by mob type, wave-clear bonuses)
+│   ├── highscores.gd      # local JSON leaderboard (top 10; path overridable in tests)
 │   └── ui.gd              # side-panel HUD built in code (stats, build palette, buttons)
 ├── tests/
 │   ├── test_runner.gd     # headless test suite (patterns, placement, waves, combat, UI)
@@ -39,7 +41,8 @@ chess-td/
 2. Buy towers and walls with gold (start: **200g**). Press **Start Wave** (or Space).
 3. **Enemy mobs** spawn at the top and path toward your King using A* pathfinding. Mobs go around your pieces when a route exists. If completely boxed in, they fall back to smashing through the cheapest line (no soft-locks).
 4. Towers shoot automatically at mobs on their chess attack squares. Kills and wave bonuses grant gold. Place, upgrade, and sell anytime (including mid-wave).
-5. King HP is your lives — King destroyed = **Game Over**. Clear **all 20 waves** = **Victory**.
+5. **Score** rises with each kill (stronger mob types — especially **Promoted** — are worth more) and with each wave you clear. The HUD shows your live score.
+6. King HP is your lives — King destroyed = **Game Over**. Clear **all 20 waves** = **Victory**. Either way you get a **final score** overlay; the run is saved to the local top-10 leaderboard (`user://highscores.json`).
 
 ### Enemy mob types
 
@@ -89,6 +92,7 @@ Sliding pieces (R/B/Q) are blocked by your own pieces/walls and have max range `
 | U / S (Del) | upgrade / sell selected piece |
 | C | **castling** — swap King with an eligible Rook (once per match) |
 | Space / Enter | start next wave |
+| L | open / close **Leaderboard** (also opens at game end) |
 
 Hovering with a tower type selected previews the piece and its attack squares (when legal).
 
@@ -103,5 +107,5 @@ Once per match you can **swap the King's position with a Rook tower** (like ches
 ## Limitations (PoC)
 
 * Towers hit one mob per shot (closest to the King’s side among valid targets).
-* No sound, saves, or menus beyond the in-code HUD.
+* No sound or online features. Local high-score JSON only; HUD + overlays are built in code.
 * Balance is tuned via `tests/autoplay.gd`; difficulty ramps gently across 20 waves.

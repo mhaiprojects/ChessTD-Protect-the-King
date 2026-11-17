@@ -49,8 +49,13 @@ chess-td/
 | **Runner** | Orange diamond | Fast, low HP, low damage |
 | **Brute** | Dark red square | Slow, high HP, heavy hits (extra wall damage) |
 | **Sapper** | Purple hexagon | Prefers attacking walls |
+| **Promoted** | Gold circle + crown | Earned in play — see **Promotion** below (not in wave spawns) |
 
 Each type pays different gold on kill. Wave composition mixes types according to the data table in `mobs.gd` (`WAVE_DEFS`).
+
+### Promotion
+
+If a mob **reaches the bottom row** (row 12 on the board, `y = 11`) without being stopped, it **promotes** instead of hitting the King that frame. It becomes a **Promoted** mob: faster and tankier than a Grunt, **full HP heal**, gold colour and **crown** marker, higher kill reward. The HUD briefly shows **“A mob was promoted!”** Promoted mobs then keep pathing toward the King as usual. Each mob can promote **at most once** (they are not stuck on the bottom row — they continue along the path toward the King).
 
 ### Placement rules
 

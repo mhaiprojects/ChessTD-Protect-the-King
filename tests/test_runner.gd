@@ -71,6 +71,8 @@ func _run() -> void:
 	test_mob_attacks()
 	print("== Castling ==")
 	test_castling()
+	print("== Promotion ==")
+	test_promotion()
 	print("== Combat, gold, upgrades ==")
 	test_combat_gold_upgrade()
 	print("== Full wave simulation ==")
@@ -339,8 +341,9 @@ func test_mob_tile_occupation() -> void:
 
 	g = new_game()
 	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(3, 7))
 	g.start_wave()
-	run_for(g, 120.0, 0.05, func(): return g.spawn_left == 0 and g.mobs.is_empty())
+	run_for(g, 240.0, 0.05, func(): return g.spawn_left == 0 and g.mobs.is_empty())
 	check(g.phase == g.Phase.BETWEEN, "Wave clears without spawn deadlock")
 	check(g.kills == 6, "All wave-1 mobs killed while respecting tile caps")
 	g.free()
@@ -428,6 +431,36 @@ func test_castling() -> void:
 	g.start_wave()
 	g.selected = Vector2i(6, 11)
 	check(g.perform_castle(Vector2i(6, 11)) and g._paths_exist_to_goal(g.king_cell, []), "Post-castle path to King remains")
+	g.free()
+
+
+func test_promotion() -> void:
+	var g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	var m = g.spawn_mob(Vector2i(5, 10), -1.0, M.GRUNT)
+	m.speed = 4.0
+	run_for(g, 2.0, 0.05, func(): return m.mob_type == M.PROMOTED)
+	check(m.promoted and m.mob_type == M.PROMOTED and m.hp == m.max_hp, "Mob promotes on bottom row with full HP")
+	check(g.last_message.contains("promoted"), "Promotion HUD message")
+	check(M.mob_stats(M.PROMOTED, 1).speed > M.mob_stats(M.GRUNT, 1).speed, "Promoted mob is faster than Grunt")
+	check(M.mob_stats(M.PROMOTED, 1).hp > M.mob_stats(M.RUNNER, 1).hp, "Promoted mob is tankier than Runner")
+	run_for(g, 4.0, 0.05)
+	check(m.alive and m.mob_type == M.PROMOTED, "Promoted mob promotes at most once")
+	var king = g.pieces[g.king_cell]
+	var hp0: float = king.hp
+	run_for(g, 30.0, 0.05, func(): return king.hp < hp0 - 1.0 or g.phase == g.Phase.GAME_OVER)
+	check(m.cell.y == g.ROWS - 1 or m.cell == g.king_cell or king.hp < hp0, "Promoted mob leaves bottom row or pressures King (not stuck)")
+	g.free()
+
+	g = new_game()
+	g.place(P.KING, Vector2i(3, 8))
+	m = g.spawn_mob(Vector2i(7, 11), 50.0, M.GRUNT)
+	m.cell = Vector2i(7, 11)
+	m.target = Vector2i(7, 11)
+	m.pos = Vector2(7, 11)
+	var khp: float = g.pieces[g.king_cell].hp
+	check(g._try_promote(m) and g.pieces[g.king_cell].hp == khp, "Promotion heals mob without dealing King damage")
+	check(m.mob_type == M.PROMOTED and m.hp == m.max_hp, "Promoted mob receives full HP")
 	g.free()
 
 

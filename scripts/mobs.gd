@@ -1,14 +1,17 @@
 extends RefCounted
 ## Enemy mob types: stats, wave composition and drawing helpers.
 
-enum { GRUNT, RUNNER, BRUTE, SAPPER }
+enum { GRUNT, RUNNER, BRUTE, SAPPER, PROMOTED }
 
-const NAMES := {GRUNT: "Grunt", RUNNER: "Runner", BRUTE: "Brute", SAPPER: "Sapper"}
+const NAMES := {
+	GRUNT: "Grunt", RUNNER: "Runner", BRUTE: "Brute", SAPPER: "Sapper", PROMOTED: "Promoted",
+}
 const COLORS := {
 	GRUNT: Color(0.55, 0.05, 0.1),
 	RUNNER: Color(0.95, 0.45, 0.1),
 	BRUTE: Color(0.35, 0.05, 0.15),
 	SAPPER: Color(0.5, 0.15, 0.55),
+	PROMOTED: Color(0.82, 0.62, 0.12),
 }
 
 
@@ -101,6 +104,15 @@ static func mob_stats(type: int, wave: int) -> Dictionary:
 				"wall_mult": 2.2,
 				"prefers_walls": true,
 			}
+		PROMOTED:
+			return {
+				"hp": 34.0 * hp_scale,
+				"speed": 1.4 + 0.045 * w,
+				"damage": 6.5 + 0.5 * w,
+				"reward": 15 + int(w * 1.6),
+				"wall_mult": 1.3,
+				"prefers_walls": false,
+			}
 	return mob_stats(GRUNT, wave)
 
 
@@ -132,6 +144,16 @@ static func wave_spawn_list(wave: int) -> Array:
 
 static func draw_mob(canvas: CanvasItem, center: Vector2, type: int, fill: Color, outline: Color) -> void:
 	match type:
+		PROMOTED:
+			var r := 16.0
+			canvas.draw_circle(center, r, fill)
+			canvas.draw_arc(center, r, 0, TAU, 32, outline, 2.0)
+			var crown := PackedVector2Array([
+				center + Vector2(-14, -6), center + Vector2(-7, -18), center + Vector2(0, -10),
+				center + Vector2(7, -18), center + Vector2(14, -6),
+			])
+			canvas.draw_colored_polygon(crown, fill.lightened(0.15))
+			canvas.draw_polyline(PackedVector2Array([crown[0], crown[1], crown[2], crown[3], crown[4]]), outline, 2.0)
 		RUNNER:
 			var dia := PackedVector2Array([
 				center + Vector2(0, -14), center + Vector2(13, 0),

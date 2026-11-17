@@ -48,6 +48,7 @@ class Mob:
 	var prefers_walls := false
 	var atk_cd := 0.0
 	var alive := true
+	var promoted := false
 
 	func tile() -> Vector2i:
 		return Vector2i(roundi(pos.x), roundi(pos.y))
@@ -425,8 +426,32 @@ func spawn_mob(c: Vector2i, hp: float = -1.0, mob_type: int = M.GRUNT) -> Mob:
 		m.wall_mult = st.wall_mult
 		m.prefers_walls = st.prefers_walls
 	m.atk_cd = 0.5
+	m.promoted = mob_type == M.PROMOTED
 	mobs.append(m)
 	return m
+
+
+func _apply_mob_stats(m, mob_type: int) -> void:
+	var st := M.mob_stats(mob_type, maxi(wave, 1))
+	m.mob_type = mob_type
+	m.max_hp = st.hp
+	m.hp = st.hp
+	m.speed = st.speed
+	m.damage = st.damage
+	m.reward = st.reward
+	m.wall_mult = st.wall_mult
+	m.prefers_walls = st.prefers_walls
+
+
+func _try_promote(m) -> bool:
+	if m.promoted or m.mob_type == M.PROMOTED:
+		return false
+	if m.cell.y != ROWS - 1:
+		return false
+	_apply_mob_stats(m, M.PROMOTED)
+	m.promoted = true
+	_msg("A mob was promoted!")
+	return true
 
 
 # ---------------------------------------------------------------- simulation
@@ -539,6 +564,8 @@ func _update_mob(m, dt: float) -> void:
 		if to.length() <= d:
 			m.pos = goal
 			m.cell = m.target
+			if _try_promote(m):
+				return
 		else:
 			m.pos += to.normalized() * d
 	if m.atk_cd <= 0.0:

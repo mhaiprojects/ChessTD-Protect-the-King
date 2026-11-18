@@ -100,6 +100,8 @@ func _run() -> void:
 	print("== Placement / setup ==")
 	test_placement()
 	await test_build_locked_during_wave_ui()
+	test_undo_placement()
+	await test_undo_ui()
 	test_tower_adjacency()
 	test_path_validation()
 	print("== Mob types ==")
@@ -321,6 +323,59 @@ func test_build_locked_during_wave_ui() -> void:
 	scene.queue_free()
 	await process_frame
 
+
+
+func test_undo_placement() -> void:
+	var g = new_game()
+	var g0: int = g.gold
+	check(g.place(P.KING, Vector2i(3, 11)) and g.gold == g0, "King placement free")
+	check(g.place(P.ROOK, Vector2i(3, 8)) and g.gold == g0 - 60, "Rook costs 60")
+	check(g.place(P.PAWN, Vector2i(5, 7)) and g.gold == g0 - 80, "Second piece placed")
+	g.upgrade(Vector2i(3, 8))
+	var spent_rook: int = g.pieces[Vector2i(3, 8)].spent
+	check(g.undo_last_placement() and not g.pieces.has(Vector2i(5, 7)), "Undo LIFO removes Pawn")
+	check(g.gold == g0 - spent_rook, "Undo refunds last piece only")
+	check(g.undo_last_placement() and not g.pieces.has(Vector2i(3, 8)), "Undo removes Rook with upgrades refunded")
+	check(g.gold == g0, "Full spent returned on Rook undo")
+	check(g.undo_last_placement() and not g.has_king(), "Undo King clears king_cell")
+	check(g.gold == g0, "King undo refunds 0 spent but restores gold")
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.WALL, Vector2i(2, 8))
+	g.sell(Vector2i(2, 8))
+	check(g.can_undo(), "Stale sold wall skipped; King still undoable")
+	check(g.undo_last_placement() and not g.has_king(), "Undo skips stale entry after sell")
+	g.start_wave()
+	check(not g.undo_last_placement(), "Undo rejected during wave")
+	g.spawn_left = 0
+	g.mobs.clear()
+	g.step(0.05)
+	check(not g.undo_last_placement(), "Stack cleared on start_wave — nothing from setup")
+	g.free()
+
+
+func test_undo_ui() -> void:
+	var scene = load("res://scenes/main.tscn").instantiate()
+	root.add_child(scene)
+	await process_frame
+	var g = scene.get_node("Game")
+	var ui = scene.get_node("UI")
+	check(ui.btn_undo.text == "Undo [Z]", "Undo button label")
+	check(ui.btn_undo.disabled, "Undo disabled with empty stack")
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(3, 8))
+	await process_frame
+	check(not ui.btn_undo.disabled, "Undo enabled after placements")
+	var key := InputEventKey.new()
+	key.pressed = true
+	key.keycode = KEY_Z
+	ui._unhandled_input(key)
+	check(not g.pieces.has(Vector2i(3, 8)), "Z undoes via UI input")
+	key.ctrl_pressed = true
+	ui._unhandled_input(key)
+	check(not g.pieces.has(Vector2i(3, 11)), "Ctrl+Z undoes King")
+	scene.queue_free()
+	await process_frame
+	check(CFG.key_label("undo") == "Z", "Undo key in settings")
 
 func test_tower_adjacency() -> void:
 	var g = new_game()

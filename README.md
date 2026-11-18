@@ -147,6 +147,7 @@ loaded automatically at every match start/restart, or **Delete [Shift+X]**.
 | Right click / Esc | cancel selection / build type |
 | 1–7 | build Pawn, Knight, Bishop, Rook, Queen, King, Wall |
 | U / S (Del) | upgrade / sell in the piece dialog (or select a piece first) |
+| Z / Ctrl+Z | **undo** last placement during setup / between waves (full refund) |
 | C | **castling** in the piece dialog when shown (once per match) |
 | Space / Enter | start next wave (build palette locks until the wave ends) |
 | G | open / close **Settings** (Config, layouts, help, Leaderboard, Restart) |

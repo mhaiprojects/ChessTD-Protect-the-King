@@ -21,17 +21,31 @@
 		"max_h": 4
 	},
 	"speed": {
-		"options": [1.0, 2.0, 3.0, 5.0, 10.0],
+		"options": [
+			1.0,
+			2.0,
+			3.0,
+			5.0,
+			10.0
+		],
 		"max_sim_step": 0.0333333333,
 		"max_frame_delta": 0.25
 	},
 	"ui": {
 		"title": "ChessTD : Protect the King",
 		"hud_min_width": 228,
-		"help_text": "Left-click: place / select piece   Right-click: cancel\nPiece menu pauses the game.  Esc closes it."
+		"help_text": "Left-click: place / select piece   Right-click: cancel\nUndo [Z] or Ctrl+Z removes the last placement (full refund).  Piece menu pauses the game.  Esc closes it."
 	},
 	"keys": {
-		"build": ["1", "2", "3", "4", "5", "6", "7"],
+		"build": [
+			"1",
+			"2",
+			"3",
+			"4",
+			"5",
+			"6",
+			"7"
+		],
 		"upgrade": "U",
 		"sell": "S",
 		"sell_alt": "Delete",
@@ -47,6 +61,7 @@
 		"layout_load": "Shift+L",
 		"layout_default": "Shift+D",
 		"layout_delete": "Shift+X",
-		"restart": "Shift+R"
+		"restart": "Shift+R",
+		"undo": "Z"
 	}
 }

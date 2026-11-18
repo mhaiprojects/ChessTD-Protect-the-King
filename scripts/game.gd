@@ -90,6 +90,9 @@ var match_result := ""          # "", "win", or "loss" after first end
 var last_message := ""
 var _match_recorded := false
 var castling_used := false
+## LIFO stack of placements during SETUP/BETWEEN (type + cell). Cleared on wave start,
+## reset, and castling. Layout load via apply_layout records each place() call.
+var _placement_undo_stack: Array = []
 var rng := RandomNumberGenerator.new()
 var astar := AStarGrid2D.new()
 var _tiles_cache: Dictionary = {}
@@ -169,6 +172,7 @@ func reset() -> void:
 	match_result = ""
 	_match_recorded = false
 	castling_used = false
+	_placement_undo_stack.clear()
 	set_speed_index(speed_index)
 	_board_changed()
 	_msg("Setup: place your King (mandatory), then towers and walls. Press Start Wave.")
@@ -429,9 +433,48 @@ func place(type: int, c: Vector2i) -> bool:
 	pieces[c] = p
 	if type == P.KING:
 		king_cell = c
+	if phase == Phase.SETUP or phase == Phase.BETWEEN:
+		_placement_undo_stack.append({"type": type, "cell": c})
 	_board_changed()
 	_msg("Placed %s." % P.NAMES[type])
 	return true
+
+
+func can_undo() -> bool:
+	if phase == Phase.WAVE:
+		return false
+	for i in range(_placement_undo_stack.size() - 1, -1, -1):
+		var e: Dictionary = _placement_undo_stack[i]
+		var c: Vector2i = e.cell
+		var p = pieces.get(c)
+		if p != null and p.type == int(e.type):
+			return true
+	return false
+
+
+func undo_last_placement() -> bool:
+	if phase == Phase.WAVE:
+		_msg("Can't undo during a wave.")
+		return false
+	while _placement_undo_stack.size() > 0:
+		var e: Dictionary = _placement_undo_stack.pop_back()
+		var c: Vector2i = e.cell
+		var p = pieces.get(c)
+		if p == null or p.type != int(e.type):
+			continue
+		var refund: int = p.spent
+		var tname: String = P.NAMES[p.type]
+		pieces.erase(c)
+		if p.type == P.KING:
+			king_cell = Vector2i(-1, -1)
+		if selected == c:
+			selected = Vector2i(-1, -1)
+		gold += refund
+		_board_changed()
+		_msg("Undid %s (+%d gold)." % [tname, refund])
+		return true
+	_msg("Nothing to undo.")
+	return false
 
 
 func upgrade(c: Vector2i) -> bool:
@@ -540,6 +583,7 @@ func perform_castle(rook_c: Vector2i) -> bool:
 	pieces[king_c] = r
 	king_cell = rook_c
 	castling_used = true
+	_placement_undo_stack.clear()
 	if selected == king_c:
 		selected = rook_c
 	elif selected == rook_c:
@@ -590,6 +634,7 @@ func start_wave() -> bool:
 	spawn_timer = 0.0
 	phase = Phase.WAVE
 	build_type = -1
+	_placement_undo_stack.clear()
 	_msg("Wave %d: %d mobs incoming!" % [wave, spawn_left])
 	return true
 
@@ -984,6 +1029,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			start_wave()
 		elif CFG.matches_key(event, "castle"):
 			try_castle()
+		elif CFG.matches_undo(event):
+			undo_last_placement()
 		elif CFG.matches_key(event, "cancel"):
 			var ui = get_parent().get_node_or_null("UI")
 			if ui != null and ui.has_method("piece_options_open") and ui.piece_options_open():

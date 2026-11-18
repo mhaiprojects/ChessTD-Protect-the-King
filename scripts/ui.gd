@@ -19,6 +19,7 @@ var lbl_title: Label
 var lbl_help: Label
 var build_buttons := {}
 var btn_start: Button
+var btn_undo: Button
 var btn_upgrade: Button
 var btn_sell: Button
 var btn_restart: Button
@@ -130,6 +131,9 @@ func _build_responsive_shell() -> void:
 	btn_start = _button(start_button_text())
 	btn_start.pressed.connect(func(): game.start_wave())
 	v.add_child(btn_start)
+	btn_undo = _button(undo_button_text())
+	btn_undo.pressed.connect(_on_undo)
+	v.add_child(btn_undo)
 	btn_speed = _button(speed_button_text())
 	btn_speed.pressed.connect(_on_speed)
 	v.add_child(btn_speed)
@@ -171,6 +175,10 @@ func start_button_text() -> String:
 	return "Start Wave  [%s]" % CFG.key_label("start_wave")
 
 
+func undo_button_text() -> String:
+	return "Undo [%s]" % CFG.key_label("undo")
+
+
 func config_button_text() -> String:
 	return "Config [%s]" % CFG.key_label("config")
 
@@ -190,6 +198,8 @@ func restart_button_text() -> String:
 func refresh_action_labels() -> void:
 	if btn_start != null:
 		btn_start.text = start_button_text()
+	if btn_undo != null:
+		btn_undo.text = undo_button_text()
 	if btn_speed != null:
 		btn_speed.text = speed_button_text()
 	if btn_settings != null:
@@ -219,6 +229,10 @@ func refresh_action_labels() -> void:
 		lbl_title.text = str(ui_cfg.get("title", lbl_title.text))
 	if lbl_help != null:
 		lbl_help.text = str(ui_cfg.get("help_text", lbl_help.text))
+
+
+func _on_undo() -> void:
+	game.undo_last_placement()
 
 
 func _on_speed() -> void:
@@ -889,6 +903,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				_dialog_castle()
 				get_viewport().set_input_as_handled()
 			return
+		if CFG.matches_undo(event):
+			game.undo_last_placement()
+			get_viewport().set_input_as_handled()
+			return
 		if CFG.matches_key(event, "settings"):
 			toggle_settings_dialog()
 			get_viewport().set_input_as_handled()
@@ -978,6 +996,8 @@ func _process(_delta: float) -> void:
 			build_locked or game.gold < P.COST[t] or (t == P.KING and game.has_king())
 		)
 	btn_start.disabled = not (game.phase == game.Phase.SETUP or game.phase == game.Phase.BETWEEN) or not game.has_king()
+	if btn_undo != null:
+		btn_undo.disabled = not game.can_undo()
 	btn_speed.text = speed_button_text()
 	var has_sel := selected_layout_name() != ""
 	btn_layout_load.disabled = not has_sel or game.phase != game.Phase.SETUP

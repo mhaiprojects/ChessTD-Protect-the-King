@@ -130,6 +130,17 @@ static func matches_key(event: InputEventKey, action: String) -> bool:
 	return event.keycode == _keycode_from_token(name) or event.physical_keycode == _keycode_from_token(name)
 
 
+
+
+static func matches_undo(event: InputEventKey) -> bool:
+	if not event.pressed or event.echo:
+		return false
+	if matches_key(event, "undo"):
+		return true
+	if event.ctrl_pressed and not event.shift_pressed and not event.alt_pressed and not event.meta_pressed:
+		return event.keycode == KEY_Z or event.physical_keycode == KEY_Z
+	return false
+
 static func build_hotkey_index(event: InputEventKey) -> int:
 	ensure_loaded()
 	if event.shift_pressed or event.ctrl_pressed or event.alt_pressed or event.meta_pressed:

@@ -29,6 +29,13 @@ const HOVER_BAD := Color(0.92, 0.18, 0.18, 0.32)
 const SELECT_RING := Color(0.98, 0.88, 0.28)
 const CASTLE_FILL := Color(0.28, 0.58, 0.95, 0.32)
 const CASTLE_BORDER := Color(0.35, 0.65, 1.0, 0.9)
+const SYNERGY_LINE := Color(1.0, 0.84, 0.32, 0.30)
+const SYNERGY_LINE_STRONG := Color(1.0, 0.86, 0.35, 0.85)
+const SYNERGY_GLOW := Color(1.0, 0.85, 0.35, 0.10)
+const SYNERGY_GLOW_STRONG := Color(1.0, 0.85, 0.35, 0.22)
+const STAT_TEXT := Color(0.98, 0.97, 0.94)
+const STAT_OUTLINE := Color(0.06, 0.06, 0.08, 0.95)
+const BUFF_TEXT := Color(1.0, 0.86, 0.4)
 
 
 static func _a(col: Color, alpha: float) -> Color:
@@ -57,23 +64,69 @@ static func _outline_poly(canvas: CanvasItem, pts: PackedVector2Array, col: Colo
 	canvas.draw_polyline(closed, col, w)
 
 
-static func draw_hp_bar(canvas: CanvasItem, p: Vector2, w: float, ratio: float, col: Color, h: float = 5.0) -> void:
+static func hp_text(hp: float, max_hp: float) -> String:
+	return "%d/%d" % [maxi(0, ceili(hp)), ceili(max_hp)]
+
+
+static func _stat_string(canvas: CanvasItem, pos: Vector2, text: String, size: int, width: float,
+		align: int, col: Color = STAT_TEXT) -> void:
+	var font := ThemeDB.fallback_font
+	canvas.draw_string_outline(font, pos, text, align, width, size, 3, STAT_OUTLINE)
+	canvas.draw_string(font, pos, text, align, width, size, col)
+
+
+## HP bar; when `text` is given it is drawn centred inside the bar (bar should be >= 9 px tall).
+static func draw_hp_bar(canvas: CanvasItem, p: Vector2, w: float, ratio: float, col: Color, h: float = 5.0, text: String = "") -> void:
 	var rr := clampf(ratio, 0.0, 1.0)
 	canvas.draw_rect(Rect2(p, Vector2(w, h)), Color(0.05, 0.05, 0.06, 0.85))
 	canvas.draw_rect(Rect2(p, Vector2(w, h)).grow(-0.5), Color(0.25, 0.25, 0.28, 0.9), false, 1.0)
 	if rr > 0.001:
 		canvas.draw_rect(Rect2(p + Vector2(1, 1), Vector2((w - 2) * rr, h - 2)), col)
+	if text != "":
+		var fs := int(maxf(7.0, h - 1.0))
+		_stat_string(canvas, p + Vector2(0, h - 1.5), text, fs, w, HORIZONTAL_ALIGNMENT_CENTER)
 
 
-static func draw_level_pips(canvas: CanvasItem, center: Vector2, level: int, alpha: float) -> void:
-	var n := clampi(level, 0, P.MAX_LEVEL)
-	if n <= 0:
+## Small vector sword (blade, guard, grip, pommel) with its tip pointing up-right.
+static func draw_weapon_icon(canvas: CanvasItem, c: Vector2, s: float = 1.0, col: Color = Color(0.86, 0.88, 0.93)) -> void:
+	var ink := Color(0.1, 0.1, 0.12, 0.95)
+	var d := Vector2(0.7071, -0.7071)
+	var n := Vector2(0.7071, 0.7071)
+	var tip := c + d * 6.0 * s
+	var base := c - d * 1.5 * s
+	var blade := PackedVector2Array([tip, base + n * 1.6 * s, base - n * 1.6 * s])
+	canvas.draw_colored_polygon(blade, col)
+	_outline_poly(canvas, blade, ink, 1.0)
+	canvas.draw_line(base + n * 3.2 * s, base - n * 3.2 * s, Color(0.78, 0.62, 0.3), 2.0 * s)
+	canvas.draw_line(base, c - d * 4.5 * s, Color(0.45, 0.3, 0.2), 1.8 * s)
+	canvas.draw_circle(c - d * 5.2 * s, 1.3 * s, Color(0.78, 0.62, 0.3))
+
+
+## Weapon icon followed by the damage value; `left_base` is the left edge at the text baseline.
+static func draw_weapon_stat(canvas: CanvasItem, left_base: Vector2, dmg: float, buffed: bool = false) -> void:
+	draw_weapon_icon(canvas, left_base + Vector2(5, -4), 0.9)
+	var txt := ("%.0f" % dmg) if dmg >= 10.0 else ("%.1f" % dmg)
+	_stat_string(canvas, left_base + Vector2(11, 0), txt, 9, 24, HORIZONTAL_ALIGNMENT_LEFT, BUFF_TEXT if buffed else STAT_TEXT)
+
+
+## "level/max" right-aligned at `right_base` (right edge, baseline).
+static func draw_level_badge(canvas: CanvasItem, right_base: Vector2, level: int, max_level: int) -> void:
+	_stat_string(canvas, right_base - Vector2(26, 0), "%d/%d" % [level, max_level], 9, 26, HORIZONTAL_ALIGNMENT_RIGHT)
+
+
+## Dashed link from a supporter to a buffed piece, ending in a small diamond.
+static func draw_synergy_link(canvas: CanvasItem, from: Vector2, to: Vector2, tile: float, strong: bool) -> void:
+	var col := SYNERGY_LINE_STRONG if strong else SYNERGY_LINE
+	var dir := (to - from)
+	var dist := dir.length()
+	if dist < 1.0:
 		return
-	var start_x := -float(n - 1) * 5.0
-	for i in n:
-		var px := center + Vector2(start_x + i * 10.0, 20.0)
-		canvas.draw_circle(px, 3.2, _a(Color(0.98, 0.98, 1.0), alpha))
-		canvas.draw_arc(px, 3.2, 0, TAU, 12, _a(Color(0.15, 0.14, 0.18), alpha), 1.0)
+	dir /= dist
+	var a := from + dir * tile * 0.3
+	var b := to - dir * tile * 0.3
+	canvas.draw_dashed_line(a, b, col, 2.0 if strong else 1.5, 5.0)
+	var nrm := Vector2(-dir.y, dir.x) * 3.5
+	canvas.draw_colored_polygon(PackedVector2Array([b + dir * 4.0, b + nrm, b - dir * 4.0, b - nrm]), col)
 
 
 static func draw_piece(

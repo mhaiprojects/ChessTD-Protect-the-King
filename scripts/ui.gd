@@ -4,6 +4,7 @@ extends CanvasLayer
 const P := preload("res://scripts/pieces.gd")
 const HS := preload("res://scripts/highscores.gd")
 const DA := preload("res://scripts/draw_art.gd")
+const LS := preload("res://scripts/layouts.gd")
 
 var game
 var layout_root: Control
@@ -20,6 +21,14 @@ var btn_restart: Button
 var btn_dialog_castle: Button
 var btn_dialog_close: Button
 var btn_leaderboard: Button
+var btn_speed: Button
+var layout_select: OptionButton
+var btn_layout_save: Button
+var btn_layout_load: Button
+var btn_layout_default: Button
+var btn_layout_delete: Button
+var stat_strip: Control
+var lbl_piece_upgrade: Label
 var piece_dimmer: ColorRect
 var piece_dialog: PanelContainer
 var lbl_piece_title: Label
@@ -37,6 +46,7 @@ func _ready() -> void:
 	game = get_parent().get_node("Game")
 	_ui_styles = DA.make_ui_styles()
 	_build_responsive_shell()
+	_load_default_layout()
 	call_deferred("_refresh_layout")
 
 
@@ -86,7 +96,7 @@ func _build_responsive_shell() -> void:
 	group.allow_unpress = true
 	for i in P.ORDER.size():
 		var t: int = P.ORDER[i]
-		var b := _button("%d %s %dg" % [i + 1, P.NAMES[t], P.COST[t]])
+		var b := _button(build_button_text(i, t))
 		b.toggle_mode = true
 		b.button_group = group
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -97,6 +107,11 @@ func _build_responsive_shell() -> void:
 	btn_start = _button("Start Wave  [Space]")
 	btn_start.pressed.connect(func(): game.start_wave())
 	v.add_child(btn_start)
+	btn_speed = _button(speed_button_text())
+	btn_speed.pressed.connect(_on_speed)
+	v.add_child(btn_speed)
+	v.add_child(HSeparator.new())
+	_build_layout_section(v)
 	v.add_child(HSeparator.new())
 	lbl_msg = _label("", 13)
 	lbl_msg.add_theme_color_override("font_color", Color(0.98, 0.86, 0.52))
@@ -110,7 +125,7 @@ func _build_responsive_shell() -> void:
 	btn_leaderboard = _button("Leaderboard [L]")
 	btn_leaderboard.pressed.connect(toggle_leaderboard)
 	v.add_child(btn_leaderboard)
-	btn_restart = _button("Restart")
+	btn_restart = _button("Restart [Shift+R]")
 	btn_restart.pressed.connect(_on_restart)
 	v.add_child(btn_restart)
 
@@ -127,6 +142,120 @@ func _build_responsive_shell() -> void:
 	_build_piece_dialog()
 
 	get_viewport().size_changed.connect(_refresh_layout)
+
+
+func build_button_text(i: int, t: int) -> String:
+	return "[%d] %s %dg" % [i + 1, P.NAMES[t], P.COST[t]]
+
+
+func speed_button_text() -> String:
+	return "Speed %s [F]" % game.speed_label()
+
+
+func _on_speed() -> void:
+	game.cycle_speed()
+	btn_speed.text = speed_button_text()
+
+
+func _build_layout_section(v: VBoxContainer) -> void:
+	v.add_child(_label("Starting layouts (default loads at match start):", 12, false, DA.UI_TEXT_DIM))
+	layout_select = OptionButton.new()
+	layout_select.focus_mode = Control.FOCUS_NONE
+	layout_select.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	layout_select.add_theme_stylebox_override("normal", _ui_styles.btn_normal)
+	layout_select.add_theme_stylebox_override("hover", _ui_styles.btn_hover)
+	layout_select.add_theme_color_override("font_color", DA.UI_TEXT)
+	v.add_child(layout_select)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	v.add_child(grid)
+	btn_layout_save = _button("Save [Shift+S]")
+	btn_layout_save.pressed.connect(save_current_layout)
+	btn_layout_load = _button("Load [Shift+L]")
+	btn_layout_load.pressed.connect(load_selected_layout)
+	btn_layout_default = _button("Default [Shift+D]")
+	btn_layout_default.pressed.connect(toggle_default_layout)
+	btn_layout_delete = _button("Delete [Shift+X]")
+	btn_layout_delete.pressed.connect(delete_selected_layout)
+	for b in [btn_layout_save, btn_layout_load, btn_layout_default, btn_layout_delete]:
+		grid.add_child(b)
+	refresh_layout_list()
+
+
+func refresh_layout_list(select: String = "") -> void:
+	if layout_select == null:
+		return
+	var prev := select if select != "" else selected_layout_name()
+	var def := LS.get_default()
+	layout_select.clear()
+	var names := LS.names()
+	for n in names:
+		layout_select.add_item(n + ("  (default)" if n == def else ""))
+		layout_select.set_item_metadata(layout_select.item_count - 1, n)
+	if names.is_empty():
+		layout_select.add_item("(no saved layouts)")
+		layout_select.set_item_metadata(0, "")
+		layout_select.disabled = true
+	else:
+		layout_select.disabled = false
+		var idx := names.find(prev)
+		layout_select.select(idx if idx >= 0 else 0)
+
+
+func selected_layout_name() -> String:
+	if layout_select == null or layout_select.item_count == 0 or layout_select.selected < 0:
+		return ""
+	return str(layout_select.get_item_metadata(layout_select.selected))
+
+
+func save_current_layout() -> String:
+	if game.pieces.is_empty():
+		game.last_message = "Nothing to save — place some pieces first."
+		return ""
+	var n := LS.next_name()
+	if LS.save_layout(n, game.export_layout()):
+		game.last_message = "Saved %s (%d pieces). Set it as Default to auto-load." % [n, game.pieces.size()]
+		refresh_layout_list(n)
+		return n
+	game.last_message = "Could not save layout."
+	return ""
+
+
+func load_selected_layout() -> int:
+	var n := selected_layout_name()
+	if n == "":
+		game.last_message = "No layout selected."
+		return 0
+	close_piece_options()
+	return game.apply_layout(LS.get_layout(n))
+
+
+func toggle_default_layout() -> void:
+	var n := selected_layout_name()
+	if n == "":
+		game.last_message = "No layout selected."
+		return
+	if LS.get_default() == n:
+		LS.set_default("")
+		game.last_message = "%s is no longer the default layout." % n
+	else:
+		LS.set_default(n)
+		game.last_message = "%s will load at the start of every match." % n
+	refresh_layout_list(n)
+
+
+func delete_selected_layout() -> void:
+	var n := selected_layout_name()
+	if n != "" and LS.delete_layout(n):
+		game.last_message = "Deleted %s." % n
+		refresh_layout_list()
+
+
+func _load_default_layout() -> void:
+	var pieces := LS.default_pieces()
+	if not pieces.is_empty():
+		game.apply_layout(pieces)
+		game.last_message = "Default layout '%s' loaded. %s" % [LS.get_default(), game.last_message]
 
 
 func _build_piece_dialog() -> void:
@@ -157,8 +286,14 @@ func _build_piece_dialog() -> void:
 
 	lbl_piece_title = _label("Piece", 17, true)
 	box.add_child(lbl_piece_title)
+	stat_strip = Control.new()
+	stat_strip.custom_minimum_size = Vector2(0, 22)
+	stat_strip.draw.connect(_draw_stat_strip)
+	box.add_child(stat_strip)
 	lbl_piece_body = _label("", 14)
 	box.add_child(lbl_piece_body)
+	lbl_piece_upgrade = _label("", 13, false, DA.UI_ACCENT)
+	box.add_child(lbl_piece_upgrade)
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
@@ -227,7 +362,7 @@ func _position_piece_dialog(vp: Rect2) -> void:
 		return
 	piece_dimmer.position = Vector2.ZERO
 	piece_dimmer.size = vp.size
-	var dlg_sz := Vector2(minf(320, vp.size.x * 0.9), minf(300, vp.size.y * 0.55))
+	var dlg_sz := Vector2(minf(340, vp.size.x * 0.9), minf(400, vp.size.y * 0.8))
 	piece_dialog.custom_minimum_size = dlg_sz
 	piece_dialog.size = dlg_sz
 	piece_dialog.position = (vp.size - dlg_sz) * 0.5
@@ -265,26 +400,24 @@ func _refresh_piece_dialog() -> void:
 	if p == null:
 		close_piece_options()
 		return
-	lbl_piece_title.text = "%s  ·  Level %d" % [P.NAMES[p.type], p.level]
+	lbl_piece_title.text = "%s  ·  %s" % [P.NAMES[p.type], P.level_text(p.level)]
+	var c: Vector2i = game.selected
 	var lines: PackedStringArray = ["HP: %d / %d" % [ceili(p.hp), ceili(p.max_hp)]]
 	if P.is_tower(p.type):
-		lines.append("Damage: %.1f every %.1fs" % [P.damage(p.type, p.level), P.COOLDOWN[p.type]])
-		if p.level < P.MAX_LEVEL:
-			lines.append(
-				"Next level: %.1f damage  ·  %dg" % [P.damage(p.type, p.level + 1), P.upgrade_cost(p.type, p.level)]
-			)
-		else:
-			lines.append("Damage: max level")
-	elif p.type == P.WALL:
-		if p.level < P.MAX_LEVEL:
-			lines.append(
-				"Next level: %d HP  ·  %dg" % [ceili(P.max_hp(P.WALL, p.level + 1)), P.upgrade_cost(p.type, p.level)]
-			)
-		else:
-			lines.append("Wall: max level")
-	if p.level < P.MAX_LEVEL and not P.is_tower(p.type) and p.type != P.WALL:
-		lines.append("Upgrade cost: %dg" % P.upgrade_cost(p.type, p.level))
+		lines.append(
+			"DMG: %.1f every %.2fs" % [game.effective_damage(p.type, p.level, c), game.effective_cooldown(p.type, c)]
+		)
+		if P.is_slider(p.type):
+			lines.append("Range: %d squares" % game.effective_range(p.level, c))
+	var syn: String = game.synergy_text(c)
+	if syn != "":
+		lines.append(syn)
+	var buff: Dictionary = P.SYNERGY.get(p.type, {})
+	if not buff.is_empty():
+		lines.append("Buffs %d allies it defends (%s)" % [game.supports_count(c), synergy_buff_text(p.type)])
 	lbl_piece_body.text = "\n".join(lines)
+	lbl_piece_upgrade.text = upgrade_preview_text(c)
+	stat_strip.queue_redraw()
 	btn_upgrade.disabled = p.level >= P.MAX_LEVEL or game.gold < P.upgrade_cost(p.type, p.level)
 	btn_sell.disabled = p.type == P.KING and game.phase != game.Phase.SETUP
 	var show_castle: bool = (
@@ -294,6 +427,50 @@ func _refresh_piece_dialog() -> void:
 	)
 	btn_dialog_castle.visible = show_castle
 	btn_dialog_castle.disabled = not show_castle
+
+
+func synergy_buff_text(t: int) -> String:
+	var b: Dictionary = P.SYNERGY.get(t, {})
+	var parts: PackedStringArray = []
+	if b.has("dmg"):
+		parts.append("+%d%% DMG" % roundi(b.dmg * 100.0))
+	if b.has("spd"):
+		parts.append("+%d%% speed" % roundi(b.spd * 100.0))
+	if b.has("hp"):
+		parts.append("+%d%% HP" % roundi(b.hp * 100.0))
+	if b.has("range"):
+		parts.append("+%d range" % int(b.range))
+	return ", ".join(parts)
+
+
+## "Upgrade to Lv 3/5 (48g):" followed by before -> after (diff) rows.
+func upgrade_preview_text(c: Vector2i) -> String:
+	var p = game.get_piece(c)
+	if p == null:
+		return ""
+	if p.level >= P.MAX_LEVEL:
+		return "Max level reached."
+	var lines: PackedStringArray = ["Upgrade to %s  (%dg):" % [P.level_text(p.level + 1), P.upgrade_cost(p.type, p.level)]]
+	for row in game.upgrade_preview(c):
+		if row.label != "Level":
+			lines.append("  " + row.text)
+	return "\n".join(lines)
+
+
+## Dialog stat strip: HP bar with numbers, weapon icon + damage, level n/max (all vector).
+func _draw_stat_strip() -> void:
+	var p = game.get_piece(game.selected)
+	if p == null or stat_strip == null:
+		return
+	var w := stat_strip.size.x
+	var bar_w := maxf(80.0, w * 0.5)
+	var bar_col := Color(0.25, 0.82, 0.38) if p.type != P.WALL else Color(0.55, 0.72, 0.82)
+	DA.draw_hp_bar(stat_strip, Vector2(0, 3), bar_w, p.hp / p.max_hp, bar_col, 16.0, DA.hp_text(p.hp, p.max_hp))
+	if P.is_tower(p.type):
+		var c: Vector2i = game.selected
+		DA.draw_weapon_stat(stat_strip, Vector2(bar_w + 10, 16), game.effective_damage(p.type, p.level, c),
+			game.synergy_at(c).dmg > 0.0)
+	DA.draw_level_badge(stat_strip, Vector2(w, 16), p.level, P.MAX_LEVEL)
 
 
 func _dialog_upgrade() -> void:
@@ -361,6 +538,7 @@ func _on_restart() -> void:
 	overlay_final.visible = false
 	_end_overlay_shown = false
 	game.reset()
+	_load_default_layout()
 	_refresh_leaderboard_text()
 
 
@@ -398,6 +576,24 @@ func _refresh_final_overlay() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
+		if event.shift_pressed and not _piece_dialog_open:
+			var handled := true
+			match event.keycode:
+				KEY_S:
+					save_current_layout()
+				KEY_L:
+					load_selected_layout()
+				KEY_D:
+					toggle_default_layout()
+				KEY_X:
+					delete_selected_layout()
+				KEY_R:
+					_on_restart()
+				_:
+					handled = false
+			if handled:
+				get_viewport().set_input_as_handled()
+				return
 		if _piece_dialog_open:
 			match event.keycode:
 				KEY_ESCAPE, KEY_ENTER:
@@ -414,6 +610,9 @@ func _unhandled_input(event: InputEvent) -> void:
 					get_viewport().set_input_as_handled()
 			return
 		match event.keycode:
+			KEY_F:
+				_on_speed()
+				get_viewport().set_input_as_handled()
 			KEY_L:
 				toggle_leaderboard()
 				get_viewport().set_input_as_handled()
@@ -483,6 +682,12 @@ func _process(_delta: float) -> void:
 		b.set_pressed_no_signal(game.build_type == t)
 		b.disabled = game.gold < P.COST[t] or (t == P.KING and game.has_king())
 	btn_start.disabled = not (game.phase == game.Phase.SETUP or game.phase == game.Phase.BETWEEN) or not game.has_king()
+	btn_speed.text = speed_button_text()
+	var has_sel := selected_layout_name() != ""
+	btn_layout_load.disabled = not has_sel or game.phase != game.Phase.SETUP
+	btn_layout_default.disabled = not has_sel
+	btn_layout_delete.disabled = not has_sel
+	btn_layout_save.disabled = game.pieces.is_empty()
 	if _piece_dialog_open:
 		_refresh_piece_dialog()
 	if game.build_type >= 0 and game.in_bounds(game.hover):

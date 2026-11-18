@@ -7,6 +7,8 @@ const M := preload("res://scripts/mobs.gd")
 const GameScript := preload("res://scripts/game.gd")
 const SC := preload("res://scripts/scoring.gd")
 const HS := preload("res://scripts/highscores.gd")
+const LS := preload("res://scripts/layouts.gd")
+const DA := preload("res://scripts/draw_art.gd")
 const SIZE := Vector2i(8, 12)
 
 var passed := 0
@@ -16,9 +18,23 @@ var failed := 0
 func _initialize() -> void:
 	_clear_hs_test_file()
 	HS.set_save_path(_hs_test_path())
-	_run()
+	LS.set_save_path(_ls_test_path())
+	_clear_ls_test_file()
+	await _run()
 	HS.reset_save_path()
 	_clear_hs_test_file()
+	_clear_ls_test_file()
+	LS.reset_save_path()
+	Engine.time_scale = 1.0
+
+
+func _ls_test_path() -> String:
+	return "user://test_layouts.json"
+
+
+func _clear_ls_test_file() -> void:
+	if FileAccess.file_exists(_ls_test_path()):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(_ls_test_path()))
 
 
 func check(cond: bool, name: String) -> void:
@@ -85,12 +101,24 @@ func _run() -> void:
 	test_full_wave()
 	print("== Score & leaderboard ==")
 	test_scoring_and_highscores()
+	print("== Phase A: HUD stats, order, costs ==")
+	test_hud_stats_and_order()
+	print("== Phase A: game speed ==")
+	test_game_speed()
+	print("== Phase A: layouts ==")
+	test_layouts()
+	print("== Phase A: upgrade preview ==")
+	test_upgrade_preview()
+	print("== Phase A: synergy ==")
+	test_synergy()
 	print("== Main scene + UI + mouse input ==")
 	await test_scene()
 	print("== Responsive layout ==")
 	await test_responsive_layout()
 	print("== Piece options dialog ==")
 	await test_piece_options_dialog()
+	print("== Phase A: UI labels, keys, layouts ==")
+	await test_phase_a_ui()
 	print("\nRESULT: %d passed, %d failed" % [passed, failed])
 	quit(1 if failed > 0 else 0)
 
@@ -222,8 +250,8 @@ func test_placement() -> void:
 	check(not g.place(P.KING, Vector2i(4, 11)), "Second King rejected (unique)")
 	check(not g.place(P.PAWN, Vector2i(3, 11)), "Occupied tile rejected")
 	check(g.place(P.ROOK, Vector2i(3, 8)) and g.gold == 140, "Place Rook (-60 gold)")
-	check(g.place(P.WALL, Vector2i(2, 6)) and g.gold == 130, "Place Wall (-10 gold)")
-	check(g.place(P.PAWN, Vector2i(5, 7)) and g.gold == 110, "Place Pawn (-20 gold)")
+	check(g.place(P.WALL, Vector2i(2, 6)) and g.gold == 40, "Place Wall (-100 gold)")
+	check(g.place(P.PAWN, Vector2i(5, 7)) and g.gold == 20, "Place Pawn (-20 gold)")
 	g.gold = 5
 	check(not g.place(P.QUEEN, Vector2i(6, 9)), "Not enough gold rejected")
 	g.gold = 110
@@ -242,6 +270,7 @@ func test_tower_adjacency() -> void:
 	g.place(P.ROOK, Vector2i(3, 8))
 	check(not g.place(P.PAWN, Vector2i(3, 7)), "Cannot place tower adjacent to Rook")
 	check(not g.place(P.WALL, Vector2i(4, 8)), "Cannot place wall adjacent to tower")
+	g.gold = 1000
 	check(g.place(P.WALL, Vector2i(3, 6)), "May place wall two tiles from tower")
 	check(g.place(P.WALL, Vector2i(2, 6)) and g.place(P.WALL, Vector2i(1, 6)), "Walls may touch other walls")
 	check(g.can_place(P.BISHOP, Vector2i(4, 8)) != "", "can_place reports adjacency violation")
@@ -288,6 +317,7 @@ func test_wave_and_movement() -> void:
 	# Pathfinding around a wall line with a gap at column 7
 	g = new_game()
 	g.place(P.KING, Vector2i(3, 11))
+	g.gold = 1000
 	for x in 7:
 		g.place(P.WALL, Vector2i(x, 6))
 	var mob = g.spawn_mob(Vector2i(0, 0), 100000.0)
@@ -763,3 +793,181 @@ func test_scene() -> void:
 	check(true, "Scene ran 30 frames with _process/_draw")
 	scene.queue_free()
 	await process_frame
+
+
+# ---------------------------------------------------------------- Phase A features
+
+func test_hud_stats_and_order() -> void:
+	check(DA.hp_text(36.2, 40.0) == "37/40" and DA.hp_text(-3.0, 40.0) == "0/40", "HP bar text is hp/max")
+	check(P.level_text(2) == "Lv 2/5", "Level shown as current/max")
+	check(P.ORDER[0] == P.PAWN and P.ORDER[1] == P.KNIGHT and P.ORDER[4] == P.QUEEN and P.ORDER[5] == P.KING,
+		"Piece order reversed: Pawn first, Queen/King last")
+	check(P.ORDER[6] == P.WALL and P.ORDER.size() == 7, "Wall stays on key 7")
+	check(P.COST[P.WALL] == 100, "Wall costs 100g")
+	var g = new_game()
+	var key := InputEventKey.new()
+	key.pressed = true
+	key.keycode = KEY_1
+	g._unhandled_input(key)
+	check(g.build_type == P.PAWN, "Key 1 selects Pawn")
+	key.keycode = KEY_6
+	g._unhandled_input(key)
+	check(g.build_type == P.KING, "Key 6 selects King")
+	g.free()
+
+
+func test_game_speed() -> void:
+	var g = new_game()
+	check(g.game_speed() == 1.0 and g.speed_label() == "x1", "Speed starts at x1")
+	var seen: Array = []
+	for i in 5:
+		seen.append(g.cycle_speed())
+	check(seen == [2.0, 3.0, 5.0, 10.0, 1.0], "Speed cycles x2 x3 x5 x10 x1")
+	g.set_speed_index(4)
+	check(Engine.time_scale == 10.0, "x10 sets Engine.time_scale")
+	check(g.advance(10.0 * 0.1) >= 30, "x10 frame is split into small sub-steps")
+	check(g.advance(1000.0) <= int(ceil(g.MAX_FRAME_DELTA * 10.0 / g.MAX_SIM_STEP)) + 1, "Huge frame delta is clamped")
+	# Same outcome at x10 (big frames) as at x1 (small frames)
+	var a = new_game()
+	var b = new_game()
+	for gg in [a, b]:
+		gg.place(P.KING, Vector2i(3, 11))
+		gg.place(P.ROOK, Vector2i(3, 7))
+		gg.start_wave()
+	b.set_speed_index(4)
+	for i in 400:
+		a.advance(1.0 / 60.0)
+	for i in 40:
+		b.advance(10.0 / 60.0)
+	check(absi(a.kills - b.kills) <= 1 and b.phase != b.Phase.GAME_OVER, "x10 simulation matches x1 (kills %d vs %d)" % [a.kills, b.kills])
+	g.set_speed_index(0)
+	check(Engine.time_scale == 1.0, "Speed back to x1")
+	for gg in [g, a, b]:
+		gg.free()
+
+
+func test_layouts() -> void:
+	_clear_ls_test_file()
+	var g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(3, 8))
+	g.upgrade(Vector2i(3, 8))
+	var lay: Array = g.export_layout()
+	check(lay.size() == 2 and lay[0].type == "King", "Export layout (King first)")
+	check(LS.save_layout("Layout 1", lay) and LS.names() == PackedStringArray(["Layout 1"]), "Save layout to user://")
+	check(LS.next_name() == "Layout 2", "Next layout name")
+	check(LS.get_default() == "" and LS.set_default("Layout 1") and LS.get_default() == "Layout 1", "Set default layout")
+	check(not LS.set_default("missing"), "Unknown default rejected")
+	var g2 = new_game()
+	var n: int = g2.apply_layout(LS.default_pieces())
+	check(n == 2 and g2.has_king() and g2.pieces[Vector2i(3, 8)].level == 2, "Default layout restores pieces and levels")
+	check(g2.gold == g.gold, "Layout load charges the same gold")
+	g2.start_wave()
+	check(g2.apply_layout(lay) == 0, "Layouts only load during setup")
+	check(LS.delete_layout("Layout 1") and LS.get_default() == "", "Delete clears default")
+	g.free()
+	g2.free()
+
+
+func test_upgrade_preview() -> void:
+	var g = new_game()
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(3, 7))
+	var rows: Array = g.upgrade_preview(Vector2i(3, 7))
+	var by := {}
+	for r in rows:
+		by[r.label] = r
+	check(by.has("HP") and by.has("DMG") and by.has("Range") and by.has("Level"), "Preview has HP, DMG, Range rows")
+	check(by.DMG.text == "DMG 7.0 -> 11.2 (+4.2)", "DMG row shows before -> after (+diff): " + by.DMG.text)
+	check(by.Range.after - by.Range.before == 1.0, "Range +1 per level")
+	var hp_after: float = by.HP.after
+	g.upgrade(Vector2i(3, 7))
+	check(absf(g.pieces[Vector2i(3, 7)].max_hp - hp_after) < 0.01, "Preview matches real upgrade")
+	g.pieces[Vector2i(3, 7)].level = P.MAX_LEVEL
+	check(g.upgrade_preview(Vector2i(3, 7)).is_empty(), "No preview at max level")
+	g.free()
+
+
+func test_synergy() -> void:
+	var g = new_game()
+	g.gold = 5000
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(1, 6))
+	var base_dmg: float = g.effective_damage(P.ROOK, 1, Vector2i(1, 6))
+	# Knight at (2,8) jumps to (1,6): buffs Rook attack speed.
+	g.place(P.KNIGHT, Vector2i(2, 8))
+	check(is_equal_approx(g.synergy_at(Vector2i(1, 6)).spd, 0.12), "Knight buffs attack speed of piece on its L-square")
+	check(g.effective_cooldown(P.ROOK, Vector2i(1, 6)) < P.COOLDOWN[P.ROOK], "Buffed Rook fires faster")
+	# Rook at (1,6) defends along its rank: Bishop at (4,6) gets +15% HP.
+	g.place(P.BISHOP, Vector2i(4, 6))
+	var bs = g.pieces[Vector2i(4, 6)]
+	check(is_equal_approx(g.synergy_at(Vector2i(4, 6)).hp, 0.15), "Rook buffs HP of piece on its line")
+	check(absf(bs.max_hp - P.max_hp(P.BISHOP, 1) * 1.15) < 0.01 and absf(bs.hp - bs.max_hp) < 0.01, "HP buff raises max HP")
+	check(g.synergy_at(Vector2i(4, 6)).from.has(Vector2i(1, 6)), "Synergy sources tracked")
+	check(g.synergy_text(Vector2i(4, 6)).begins_with("Synergy: +15% HP"), "Synergy line text for dialog")
+	check(g.supports_count(Vector2i(1, 6)) >= 1, "Supporter counts its allies")
+	check(g.synergy_at(Vector2i(6, 9)).from.is_empty(), "Empty squares get nothing")
+	bs.hp = bs.max_hp * 0.5
+	g.sell(Vector2i(1, 6))
+	check(absf(bs.max_hp - P.max_hp(P.BISHOP, 1)) < 0.01 and absf(bs.hp / bs.max_hp - 0.5) < 0.01, "Losing a buff keeps HP ratio")
+	# Pawn reaches 2 squares diagonally forward (tower gap rule), King has a radius-2 aura.
+	var g2 = new_game()
+	g2.gold = 5000
+	g2.place(P.KING, Vector2i(3, 11))
+	g2.place(P.KNIGHT, Vector2i(1, 9))
+	check(is_equal_approx(g2.synergy_at(Vector2i(1, 9)).dmg, 0.08), "King aura buffs piece two squares away")
+	check(g2.effective_damage(P.KNIGHT, 1, Vector2i(1, 9)) > P.damage(P.KNIGHT, 1), "Aura raises damage")
+	g2.place(P.PAWN, Vector2i(3, 7))
+	g2.place(P.BISHOP, Vector2i(5, 5))
+	check(is_equal_approx(g2.synergy_at(Vector2i(5, 5)).dmg, 0.10), "Pawn buffs piece 2 squares diagonally forward")
+	g2.place(P.BISHOP, Vector2i(7, 7))
+	check(g2.synergy_at(Vector2i(5, 5)).range == 1 and g2.effective_range(1, Vector2i(5, 5)) == 4, "Bishop gives +1 range")
+	var tiles: Dictionary = g2.attack_tiles_for(Vector2i(5, 5))
+	check(tiles.has(Vector2i(1, 1)), "Range buff extends slider attack squares")
+	g2.sell(Vector2i(3, 7))
+	check(is_equal_approx(g2.synergy_at(Vector2i(5, 5)).dmg, 0.0), "Selling the supporter removes the buff")
+	var cap = new_game()
+	check(P.SYNERGY_CAP.dmg <= 0.5 and P.SYNERGY[P.WALL].is_empty(), "Synergy capped; walls give nothing")
+	g.free()
+	g2.free()
+	cap.free()
+
+
+func test_phase_a_ui() -> void:
+	_clear_ls_test_file()
+	var scene = load("res://scenes/main.tscn").instantiate()
+	root.add_child(scene)
+	await process_frame
+	var g = scene.get_node("Game")
+	var ui = scene.get_node("UI")
+	check(ui.build_buttons[P.PAWN].text.begins_with("[1] Pawn"), "Build button shows [1] Pawn")
+	check(ui.build_buttons[P.WALL].text == "[7] Wall 100g", "Wall button shows key and 100g")
+	check(ui.btn_speed.text == "Speed x1 [F]" and ui.btn_restart.text.contains("["), "Speed/Restart buttons show keys")
+	var key := InputEventKey.new()
+	key.pressed = true
+	key.keycode = KEY_F
+	ui._unhandled_input(key)
+	check(g.game_speed() == 2.0 and ui.btn_speed.text == "Speed x2 [F]", "F cycles speed")
+	g.set_speed_index(0)
+	g.place(P.KING, Vector2i(3, 11))
+	g.place(P.ROOK, Vector2i(3, 8))
+	var name: String = ui.save_current_layout()
+	check(name == "Layout 1" and ui.selected_layout_name() == "Layout 1", "Save layout from HUD")
+	ui.toggle_default_layout()
+	check(LS.get_default() == "Layout 1", "Set default from HUD")
+	ui._on_restart()
+	check(g.pieces.size() == 2 and g.has_king(), "Default layout auto-loads on restart")
+	ui.open_piece_options(Vector2i(3, 8))
+	check(ui.lbl_piece_title.text.contains("Lv 1/5"), "Dialog title shows Lv n/max")
+	check(ui.lbl_piece_upgrade.text.contains("DMG 7.0 -> 11.2 (+4.2)"), "Dialog shows upgrade before/after diff")
+	ui.close_piece_options()
+	var skey := InputEventKey.new()
+	skey.pressed = true
+	skey.shift_pressed = true
+	skey.keycode = KEY_S
+	ui._unhandled_input(skey)
+	check(g.pieces.has(Vector2i(3, 8)), "Shift+S saves instead of selling")
+	check(LS.names().size() == 2, "Shift+S saved a second layout")
+	scene.queue_free()
+	await process_frame
+	_clear_ls_test_file()

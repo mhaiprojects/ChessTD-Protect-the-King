@@ -10,7 +10,7 @@ func _run() -> void:
 	var scene = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
 	var g = scene.get_node("Game")
-	g.gold += 300
+	g.gold += 900
 	g.place(P.KING, Vector2i(3, 11))
 	g.place(P.QUEEN, Vector2i(4, 9))
 	g.place(P.ROOK, Vector2i(2, 9))

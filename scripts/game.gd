@@ -23,6 +23,10 @@ const MOB_ATTACK_RATE := 1.0
 ## Castling: King swaps with a Rook on the same rank, horizontal distance 2–4 tiles (once per match).
 const CASTLING_MIN_H := 2
 const CASTLING_MAX_H := 4
+## Game speed multipliers (Engine.time_scale). Simulation sub-steps keep x10 stable.
+const SPEED_OPTIONS := [1.0, 2.0, 3.0, 5.0, 10.0]
+const MAX_SIM_STEP := 1.0 / 30.0
+const MAX_FRAME_DELTA := 0.25
 
 enum Phase { SETUP, WAVE, BETWEEN, GAME_OVER, VICTORY }
 const PHASE_NAMES := ["Setup", "Wave running", "Build (between waves)", "GAME OVER", "VICTORY"]
@@ -86,6 +90,8 @@ var castling_used := false
 var rng := RandomNumberGenerator.new()
 var astar := AStarGrid2D.new()
 var _tiles_cache: Dictionary = {}
+var synergy: Dictionary = {}    # Vector2i -> {dmg, spd, hp, range, from: Array[Vector2i]}
+var speed_index := 0
 
 
 func _init() -> void:
@@ -225,6 +231,90 @@ func _board_changed() -> void:
 			astar.set_point_weight_scale(Vector2i(x, y), 1.0)
 	for c in pieces:
 		astar.set_point_weight_scale(c, PIECE_PATH_WEIGHT)
+	_recompute_synergy()
+
+
+# ---------------------------------------------------------------- synergy
+
+func _empty_bonus() -> Dictionary:
+	return {"dmg": 0.0, "spd": 0.0, "hp": 0.0, "range": 0, "from": []}
+
+
+## Rebuild synergy buffs: each piece buffs friendly pieces on its support squares.
+## Max HP follows the HP buff while keeping each piece's current HP ratio.
+func _recompute_synergy() -> void:
+	synergy.clear()
+	var size := Vector2i(COLS, ROWS)
+	for c in pieces:
+		var src = pieces[c]
+		var buff: Dictionary = P.SYNERGY.get(src.type, {})
+		if buff.is_empty():
+			continue
+		for t in P.support_tiles(src.type, c, src.level, size, pieces):
+			if t == c or not pieces.has(t):
+				continue
+			var b: Dictionary = synergy.get(t, _empty_bonus())
+			for k in ["dmg", "spd", "hp"]:
+				b[k] = minf(float(P.SYNERGY_CAP[k]), b[k] + float(buff.get(k, 0.0)))
+			b["range"] = mini(int(P.SYNERGY_CAP["range"]), b["range"] + int(buff.get("range", 0)))
+			b["from"].append(c)
+			synergy[t] = b
+	for c in pieces:
+		var p = pieces[c]
+		var new_max := effective_max_hp(p.type, p.level, c)
+		if p.max_hp > 0.0 and absf(new_max - p.max_hp) > 0.001:
+			p.hp = p.hp * new_max / p.max_hp
+		p.max_hp = new_max
+
+
+func synergy_at(c: Vector2i) -> Dictionary:
+	return synergy.get(c, _empty_bonus())
+
+
+func effective_max_hp(type: int, level: int, c: Vector2i) -> float:
+	return P.max_hp(type, level) * (1.0 + float(synergy_at(c).hp))
+
+
+func effective_damage(type: int, level: int, c: Vector2i) -> float:
+	return P.damage(type, level) * (1.0 + float(synergy_at(c).dmg))
+
+
+func effective_cooldown(type: int, c: Vector2i) -> float:
+	return P.COOLDOWN[type] / (1.0 + float(synergy_at(c).spd))
+
+
+func effective_range(level: int, c: Vector2i) -> int:
+	return P.slide_range(level) + int(synergy_at(c).range)
+
+
+## Human-readable synergy line for the piece dialog ("" when unbuffed).
+func synergy_text(c: Vector2i) -> String:
+	var b := synergy_at(c)
+	if b.from.is_empty():
+		return ""
+	var parts: PackedStringArray = []
+	if b.dmg > 0.0:
+		parts.append("+%d%% DMG" % roundi(b.dmg * 100.0))
+	if b.spd > 0.0:
+		parts.append("+%d%% speed" % roundi(b.spd * 100.0))
+	if b.hp > 0.0:
+		parts.append("+%d%% HP" % roundi(b.hp * 100.0))
+	if b.range > 0:
+		parts.append("+%d range" % b.range)
+	var names: PackedStringArray = []
+	for f in b.from:
+		if pieces.has(f):
+			names.append(P.NAMES[pieces[f].type])
+	return "Synergy: %s (from %s)" % [", ".join(parts), ", ".join(names)]
+
+
+## Number of friendly pieces the piece at `c` currently buffs.
+func supports_count(c: Vector2i) -> int:
+	var n := 0
+	for t in synergy:
+		if synergy[t].from.has(c):
+			n += 1
+	return n
 
 
 ## Attack tiles for the piece at `c` (cached; invalidated whenever the board changes).
@@ -234,7 +324,8 @@ func attack_tiles_for(c: Vector2i) -> Dictionary:
 	var d := {}
 	var p = pieces.get(c)
 	if p != null:
-		for t in P.attack_tiles(p.type, c, p.level, Vector2i(COLS, ROWS), pieces):
+		var rb := int(synergy_at(c).range)
+		for t in P.attack_tiles(p.type, c, p.level, Vector2i(COLS, ROWS), pieces, rb):
 			d[t] = true
 	_tiles_cache[c] = d
 	return d
@@ -314,7 +405,7 @@ func upgrade(c: Vector2i) -> bool:
 	p.spent += cost
 	var old_max: float = p.max_hp
 	p.level += 1
-	p.max_hp = P.max_hp(p.type, p.level)
+	p.max_hp = effective_max_hp(p.type, p.level, c)
 	p.hp += p.max_hp - old_max
 	_board_changed()
 	_msg("%s upgraded to level %d." % [P.NAMES[p.type], p.level])
@@ -509,8 +600,118 @@ func _try_promote(m) -> bool:
 # ---------------------------------------------------------------- simulation
 
 func _process(delta: float) -> void:
-	step(delta)
+	advance(delta)
 	queue_redraw()
+
+
+## Advance the simulation by a (time-scaled) frame delta in small fixed-size sub-steps,
+## so high game speeds (x10) never skip spawns, shots or collisions.
+func advance(delta: float) -> int:
+	var total := minf(delta, MAX_FRAME_DELTA * float(SPEED_OPTIONS[speed_index]))
+	if total <= 0.0:
+		return 0
+	var n := maxi(1, ceili(total / MAX_SIM_STEP))
+	var dt := total / float(n)
+	for i in n:
+		step(dt)
+	return n
+
+
+func game_speed() -> float:
+	return float(SPEED_OPTIONS[speed_index])
+
+
+func set_speed_index(i: int) -> void:
+	speed_index = posmod(i, SPEED_OPTIONS.size())
+	Engine.time_scale = game_speed()
+
+
+func cycle_speed() -> float:
+	set_speed_index(speed_index + 1)
+	_msg("Game speed x%d." % int(game_speed()))
+	return game_speed()
+
+
+func speed_label() -> String:
+	return "x%d" % int(game_speed())
+
+
+# ---------------------------------------------------------------- layouts
+
+## Serialise the current board as a layout: [{type, x, y, level}], King first.
+func export_layout() -> Array:
+	var out: Array = []
+	for c in pieces:
+		var p = pieces[c]
+		var e := {"type": P.NAMES[p.type], "x": c.x, "y": c.y, "level": p.level}
+		if p.type == P.KING:
+			out.push_front(e)
+		else:
+			out.append(e)
+	return out
+
+
+## Replace the board with a saved layout (setup phase only). Pieces are bought with normal
+## rules and gold; anything unaffordable or illegal is skipped. Returns pieces placed.
+func apply_layout(entries: Array) -> int:
+	if phase != Phase.SETUP:
+		_msg("Layouts can only be loaded during setup.")
+		return 0
+	pieces.clear()
+	king_cell = Vector2i(-1, -1)
+	selected = Vector2i(-1, -1)
+	castling_used = false
+	gold = START_GOLD
+	_board_changed()
+	var by_name := {}
+	for t in P.ORDER:
+		by_name[P.NAMES[t]] = t
+	var sorted := entries.duplicate()
+	sorted.sort_custom(func(a, b): return str(a.get("type", "")) == "King" and str(b.get("type", "")) != "King")
+	var placed := 0
+	var skipped := 0
+	for e in sorted:
+		if not (e is Dictionary) or not by_name.has(str(e.get("type", ""))):
+			skipped += 1
+			continue
+		var t: int = by_name[str(e.type)]
+		var c := Vector2i(int(e.get("x", -1)), int(e.get("y", -1)))
+		if place(t, c):
+			placed += 1
+			for i in range(1, clampi(int(e.get("level", 1)), 1, P.MAX_LEVEL)):
+				if not upgrade(c):
+					break
+		else:
+			skipped += 1
+	build_type = -1 if has_king() else P.KING
+	_msg("Layout loaded: %d pieces placed%s." % [placed, (", %d skipped" % skipped) if skipped > 0 else ""])
+	return placed
+
+
+# ---------------------------------------------------------------- upgrade preview
+
+## Before/after stat rows for upgrading the piece at `c`: [{label, before, after, diff}].
+func upgrade_preview(c: Vector2i) -> Array:
+	var p = pieces.get(c)
+	if p == null or p.level >= P.MAX_LEVEL:
+		return []
+	var rows: Array = []
+	var nl: int = p.level + 1
+	rows.append(_stat_row("Level", p.level, nl, 0))
+	rows.append(_stat_row("HP", p.max_hp, effective_max_hp(p.type, nl, c), 0))
+	if P.is_tower(p.type):
+		rows.append(_stat_row("DMG", effective_damage(p.type, p.level, c), effective_damage(p.type, nl, c), 1))
+		if P.is_slider(p.type):
+			rows.append(_stat_row("Range", effective_range(p.level, c), effective_range(nl, c), 0))
+	return rows
+
+
+func _stat_row(label: String, before: float, after: float, decimals: int) -> Dictionary:
+	var fmt := "%." + str(decimals) + "f"
+	var diff := after - before
+	var sgn := "+" if diff >= 0.0 else "-"
+	var txt := "%s %s -> %s (%s%s)" % [label, fmt % before, fmt % after, sgn, fmt % absf(diff)]
+	return {"label": label, "before": before, "after": after, "diff": diff, "text": txt}
 
 
 func step(dt: float) -> void:
@@ -695,8 +896,8 @@ func _update_towers(dt: float) -> void:
 				best = m
 		if best == null:
 			continue
-		p.cd = P.COOLDOWN[p.type]
-		best.hp -= P.damage(p.type, p.level)
+		p.cd = effective_cooldown(p.type, c)
+		best.hp -= effective_damage(p.type, p.level, c)
 		best.flash = 0.18
 		shots.append({"from": cell_center(Vector2(c)), "to": cell_center(best.pos), "t": 0.12, "enemy": false})
 		if best.hp <= 0.0:
@@ -720,7 +921,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		hover = world_to_cell(_pointer_canvas_pos(event))
 	elif event is InputEventMouseButton and event.pressed:
 		handle_click(world_to_cell(_pointer_canvas_pos(event)), event.button_index)
-	elif event is InputEventKey and event.pressed and not event.echo:
+	elif event is InputEventKey and event.pressed and not event.echo and not event.shift_pressed:
 		match event.keycode:
 			KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7:
 				build_type = P.ORDER[event.keycode - KEY_1]
@@ -812,9 +1013,11 @@ func _draw() -> void:
 		draw_rect(ar, DA.ATTACK_RING, false, 1.5)
 		draw_circle(cell_center(Vector2(t)), 4.5, DA.ATTACK_RING)
 
+	_draw_synergy_links()
 	for c in pieces:
 		var p = pieces[c]
 		_draw_piece_shape(p.type, cell_center(Vector2(c)), p.level, p.hp / p.max_hp, p.flash, 1.0)
+		_draw_piece_stats(p, c)
 	if pieces.has(selected):
 		var sr := Rect2(board_origin + Vector2(selected) * tile_size, Vector2(tile_size, tile_size)).grow(-3)
 		draw_rect(sr, DA.SELECT_RING, false, 3.0)
@@ -831,7 +1034,10 @@ func _draw() -> void:
 		if m.flash > 0.0:
 			fill = fill.lerp(Color(1.0, 0.85, 0.7), clampf(m.flash / 0.18, 0.0, 0.7))
 		M.draw_mob(self, cp, m.mob_type, fill, Color(0.12, 0.08, 0.1), m.flash)
-		DA.draw_hp_bar(self, cp + Vector2(-18, -24), 36, m.hp / m.max_hp, Color(0.88, 0.22, 0.22))
+		var ms := _art_scale()
+		draw_set_transform(cp, 0.0, Vector2(ms, ms))
+		DA.draw_hp_bar(self, Vector2(-18, -28), 36, m.hp / m.max_hp, Color(0.88, 0.22, 0.22), 10.0, DA.hp_text(m.hp, m.max_hp))
+		draw_set_transform(Vector2.ZERO)
 
 	for s in shots:
 		var col := Color(1, 0.35, 0.25, 0.95) if s.enemy else Color(1, 0.92, 0.42, 0.95)
@@ -851,11 +1057,41 @@ func _draw() -> void:
 		)
 
 
-func _draw_piece_shape(type: int, c: Vector2, level: int, hp_ratio: float, flash: float, alpha: float) -> void:
-	var base: Color = P.COLORS[type]
-	DA.draw_piece(self, c, type, base, alpha, flash)
-	if P.is_tower(type):
-		DA.draw_level_pips(self, c, level, alpha)
-	if hp_ratio < 1.0:
-		var bar_col := Color(0.25, 0.82, 0.38) if type != P.WALL else Color(0.55, 0.72, 0.82)
-		DA.draw_hp_bar(self, c + Vector2(-22, -30), 44, hp_ratio, bar_col)
+func _art_scale() -> float:
+	return clampf(tile_size / BASE_TILE, 0.5, 2.0)
+
+
+func _draw_piece_shape(type: int, c: Vector2, _level: int, _hp_ratio: float, flash: float, alpha: float) -> void:
+	var k := _art_scale()
+	draw_set_transform(c, 0.0, Vector2(k, k))
+	DA.draw_piece(self, Vector2.ZERO, type, P.COLORS[type], alpha, flash)
+	draw_set_transform(Vector2.ZERO)
+
+
+## HP bar with numbers (top), weapon icon + damage (bottom-left), level n/max (bottom-right).
+func _draw_piece_stats(p, c: Vector2i) -> void:
+	var k := _art_scale()
+	draw_set_transform(cell_center(Vector2(c)), 0.0, Vector2(k, k))
+	var bar_col := Color(0.25, 0.82, 0.38) if p.type != P.WALL else Color(0.55, 0.72, 0.82)
+	DA.draw_hp_bar(self, Vector2(-25, -27), 50, p.hp / p.max_hp, bar_col, 10.0, DA.hp_text(p.hp, p.max_hp))
+	if P.is_tower(p.type):
+		DA.draw_weapon_stat(self, Vector2(-26, 26), effective_damage(p.type, p.level, c), synergy_at(c).dmg > 0.0)
+	DA.draw_level_badge(self, Vector2(26, 26), p.level, P.MAX_LEVEL)
+	draw_set_transform(Vector2.ZERO)
+
+
+## Subtle gold links from each supporter to the friendly pieces it buffs, plus a soft glow.
+func _draw_synergy_links() -> void:
+	var sel_on := pieces.has(selected)
+	for t in synergy:
+		if not pieces.has(t):
+			continue
+		var b: Dictionary = synergy[t]
+		var to := cell_center(Vector2(t))
+		var strong: bool = sel_on and (t == selected or b.from.has(selected))
+		draw_circle(to, tile_size * 0.46, DA.SYNERGY_GLOW if not strong else DA.SYNERGY_GLOW_STRONG)
+		for f in b.from:
+			var involved: bool = sel_on and (f == selected or t == selected)
+			if sel_on and not involved:
+				continue
+			DA.draw_synergy_link(self, cell_center(Vector2(f)), to, tile_size, involved)

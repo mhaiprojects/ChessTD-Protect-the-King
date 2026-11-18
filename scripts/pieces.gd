@@ -3,10 +3,11 @@ extends RefCounted
 
 enum { KING, QUEEN, ROOK, BISHOP, KNIGHT, PAWN, WALL }
 
-const ORDER := [KING, QUEEN, ROOK, BISHOP, KNIGHT, PAWN, WALL]
+## Build palette / hotkey order: Pawn is key 1, chess pieces ascend in value, Wall last (key 7).
+const ORDER := [PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING, WALL]
 const NAMES := {KING: "King", QUEEN: "Queen", ROOK: "Rook", BISHOP: "Bishop", KNIGHT: "Knight", PAWN: "Pawn", WALL: "Wall"}
 const LETTERS := {KING: "K", QUEEN: "Q", ROOK: "R", BISHOP: "B", KNIGHT: "N", PAWN: "P", WALL: ""}
-const COST := {KING: 0, QUEEN: 120, ROOK: 60, BISHOP: 50, KNIGHT: 45, PAWN: 20, WALL: 10}
+const COST := {KING: 0, QUEEN: 120, ROOK: 60, BISHOP: 50, KNIGHT: 45, PAWN: 20, WALL: 100}
 const DAMAGE := {KING: 5.0, QUEEN: 8.0, ROOK: 7.0, BISHOP: 6.0, KNIGHT: 12.0, PAWN: 6.0, WALL: 0.0}
 const COOLDOWN := {KING: 0.8, QUEEN: 0.8, ROOK: 0.9, BISHOP: 0.8, KNIGHT: 1.1, PAWN: 0.7, WALL: 0.0}
 const HP := {KING: 200.0, QUEEN: 60.0, ROOK: 60.0, BISHOP: 50.0, KNIGHT: 50.0, PAWN: 40.0, WALL: 100.0}
@@ -22,6 +23,28 @@ const KNIGHT_JUMPS := [Vector2i(1, 2), Vector2i(2, 1), Vector2i(-1, 2), Vector2i
 	Vector2i(1, -2), Vector2i(2, -1), Vector2i(-1, -2), Vector2i(-2, -1)]
 ## Pawns face the mobs (top of the board = negative y) and capture diagonally forward.
 const PAWN_CAPTURES := [Vector2i(-1, -1), Vector2i(1, -1)]
+
+
+## Synergy: every piece buffs friendly pieces standing on squares it "defends" (its chess
+## attack pattern, but sliders include the first occupied square, like protecting a piece).
+## The tower gap rule forbids adjacent towers, so Pawn and King reach two squares out.
+## Bonus keys: dmg (+fraction damage), spd (+fraction attack speed), hp (+fraction max HP),
+## range (+squares for sliders). Stacks additively, capped by SYNERGY_CAP.
+const SYNERGY := {
+	PAWN: {"dmg": 0.10},
+	KNIGHT: {"spd": 0.12},
+	BISHOP: {"range": 1},
+	ROOK: {"hp": 0.15},
+	QUEEN: {"dmg": 0.05, "spd": 0.05, "hp": 0.05},
+	KING: {"dmg": 0.08, "spd": 0.08},
+	WALL: {},
+}
+const SYNERGY_CAP := {"dmg": 0.5, "spd": 0.5, "hp": 0.6, "range": 2}
+const PAWN_SUPPORT := [Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-2, -2), Vector2i(2, -2)]
+
+
+static func level_text(level: int) -> String:
+	return "Lv %d/%d" % [level, MAX_LEVEL]
 
 
 static func damage(type: int, level: int) -> float:
@@ -49,21 +72,59 @@ static func is_tower(type: int) -> bool:
 ## Tiles a piece of `type` at `cell` may attack, like legal chess moves.
 ## `occupied` is any Dictionary keyed by Vector2i of board pieces (walls/towers):
 ## sliders stop BEFORE an occupied tile (own pieces block line of sight).
-static func attack_tiles(type: int, cell: Vector2i, level: int, board_size: Vector2i, occupied: Dictionary) -> Array:
+static func attack_tiles(
+	type: int, cell: Vector2i, level: int, board_size: Vector2i, occupied: Dictionary, range_bonus: int = 0
+) -> Array:
 	var out: Array = []
+	var rng := slide_range(level) + range_bonus
 	match type:
 		ROOK:
-			_slide(out, cell, ORTHO, slide_range(level), board_size, occupied)
+			_slide(out, cell, ORTHO, rng, board_size, occupied)
 		BISHOP:
-			_slide(out, cell, DIAG, slide_range(level), board_size, occupied)
+			_slide(out, cell, DIAG, rng, board_size, occupied)
 		QUEEN:
-			_slide(out, cell, ORTHO + DIAG, slide_range(level), board_size, occupied)
+			_slide(out, cell, ORTHO + DIAG, rng, board_size, occupied)
 		KNIGHT:
 			_jumps(out, cell, KNIGHT_JUMPS, board_size)
 		KING:
 			_jumps(out, cell, ORTHO + DIAG, board_size)
 		PAWN:
 			_jumps(out, cell, PAWN_CAPTURES, board_size)
+	return out
+
+
+static func is_slider(type: int) -> bool:
+	return type == ROOK or type == BISHOP or type == QUEEN
+
+
+## Squares a piece supports for synergy (see SYNERGY). Sliders include the first blocker.
+static func support_tiles(type: int, cell: Vector2i, level: int, board_size: Vector2i, occupied: Dictionary) -> Array:
+	var out: Array = []
+	var dirs: Array = []
+	match type:
+		ROOK:
+			dirs = ORTHO
+		BISHOP:
+			dirs = DIAG
+		QUEEN:
+			dirs = ORTHO + DIAG
+		KNIGHT:
+			_jumps(out, cell, KNIGHT_JUMPS, board_size)
+		KING:
+			for dx in range(-2, 3):
+				for dy in range(-2, 3):
+					if dx != 0 or dy != 0:
+						_jumps(out, cell, [Vector2i(dx, dy)], board_size)
+		PAWN:
+			_jumps(out, cell, PAWN_SUPPORT, board_size)
+	for d in dirs:
+		for i in range(1, slide_range(level) + 1):
+			var c: Vector2i = cell + d * i
+			if not _inside(c, board_size):
+				break
+			out.append(c)
+			if occupied.has(c):
+				break
 	return out
 
 

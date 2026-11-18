@@ -1,9 +1,13 @@
-# Chess Tower Defense (Godot 4 PoC)
+# ChessTD : Protect the King
 
 Minimal tower-defense proof of concept where every tower is a chess piece and can only
 attack the squares it could move to in chess. Everything is drawn with `_draw()` vector
 primitives (rects, circles, polygons, lines) - no image assets. Piece and mob shapes live in
 `scripts/draw_art.gd` and `scripts/mobs.gd`.
+
+Play in the browser: https://mhaiprojects.github.io/ChessTD-Protect-the-King/
+
+Source: https://github.com/mhaiprojects/ChessTD-Protect-the-King
 
 ![screenshot](docs/screenshot.png)
 
@@ -19,7 +23,7 @@ primitives (rects, circles, polygons, lines) - no image assets. Piece and mob sh
 ## Project structure
 
 ```
-chess-td/
+ChessTD-Protect-the-King/
 ├── project.godot          # project config, main scene, resizable window + stretch
 ├── scenes/main.tscn       # Main(Node) -> Game(Node2D, game.gd) + UI(CanvasLayer, ui.gd)
 ├── scripts/

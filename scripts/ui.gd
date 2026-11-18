@@ -74,7 +74,7 @@ func _build_responsive_shell() -> void:
 	v.add_theme_constant_override("separation", 8)
 	hud_panel.add_child(v)
 
-	v.add_child(_label("CHESS TOWER DEFENSE", 18, true))
+	v.add_child(_label("ChessTD : Protect the King", 18, true))
 	lbl_stats = _label("", 15)
 	v.add_child(lbl_stats)
 	v.add_child(HSeparator.new())

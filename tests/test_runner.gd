@@ -136,6 +136,7 @@ func _run() -> void:
 	test_upgrade_preview()
 	print("== Phase A: synergy ==")
 	test_synergy()
+	test_support_pattern_alignment()
 	print("== Main scene + UI + mouse input ==")
 	await test_scene()
 	print("== Responsive layout ==")
@@ -1023,28 +1024,81 @@ func test_synergy() -> void:
 	bs.hp = bs.max_hp * 0.5
 	g.sell(Vector2i(1, 6))
 	check(absf(bs.max_hp - P.max_hp(P.BISHOP, 1)) < 0.01 and absf(bs.hp / bs.max_hp - 0.5) < 0.01, "Losing a buff keeps HP ratio")
-	# Pawn reaches 2 squares diagonally forward (tower gap rule), King has a radius-2 aura.
+	# Synergy tiles match attack patterns (no 2-square King/Pawn reach).
 	var g2 = new_game()
 	g2.gold = 5000
 	g2.place(P.KING, Vector2i(3, 11))
 	g2.place(P.KNIGHT, Vector2i(1, 9))
-	check(is_equal_approx(g2.synergy_at(Vector2i(1, 9)).dmg, 0.08), "King aura buffs piece two squares away")
-	check(g2.effective_damage(P.KNIGHT, 1, Vector2i(1, 9)) > P.damage(P.KNIGHT, 1), "Aura raises damage")
-	g2.place(P.PAWN, Vector2i(3, 7))
-	g2.place(P.BISHOP, Vector2i(5, 5))
-	check(is_equal_approx(g2.synergy_at(Vector2i(5, 5)).dmg, 0.10), "Pawn buffs piece 2 squares diagonally forward")
-	g2.place(P.BISHOP, Vector2i(7, 7))
-	check(g2.synergy_at(Vector2i(5, 5)).range == 1 and g2.effective_range(1, Vector2i(5, 5)) == 4, "Bishop gives +1 range")
-	var tiles: Dictionary = g2.attack_tiles_for(Vector2i(5, 5))
-	check(tiles.has(Vector2i(1, 1)), "Range buff extends slider attack squares")
-	g2.sell(Vector2i(3, 7))
-	check(is_equal_approx(g2.synergy_at(Vector2i(5, 5)).dmg, 0.0), "Selling the supporter removes the buff")
+	check(is_equal_approx(g2.synergy_at(Vector2i(1, 9)).dmg, 0.0), "King does not buff two squares away")
+	_force_wall(g2, Vector2i(2, 10))
+	check(is_equal_approx(g2.synergy_at(Vector2i(2, 10)).dmg, 0.08), "King buffs adjacent wall on diagonal")
+	g2.place(P.PAWN, Vector2i(3, 8))
+	_force_wall(g2, Vector2i(2, 7))
+	check(is_equal_approx(g2.synergy_at(Vector2i(2, 7)).dmg, 0.10), "Pawn buffs wall at capture diagonal")
+	check(is_equal_approx(g2.synergy_at(Vector2i(3, 7)).dmg, 0.0), "Pawn does not buff straight-forward square")
+	check(is_equal_approx(g2.synergy_at(Vector2i(5, 5)).dmg, 0.0), "Pawn does not buff two squares diagonally")
+	g2.place(P.ROOK, Vector2i(1, 6))
+	g2.place(P.WALL, Vector2i(4, 6))
+	g2.place(P.BISHOP, Vector2i(5, 6))
+	check(is_equal_approx(g2.synergy_at(Vector2i(4, 6)).hp, 0.15), "Rook buffs first blocker on its line")
+	check(is_equal_approx(g2.synergy_at(Vector2i(5, 6)).hp, 0.0), "Rook does not buff piece behind wall on line")
+	var g3 = new_game()
+	g3.gold = 2000
+	g3.place(P.KING, Vector2i(3, 11))
+	g3.place(P.BISHOP, Vector2i(1, 9))
+	g3.place(P.ROOK, Vector2i(4, 6))
+	check(g3.synergy_at(Vector2i(4, 6)).range == 1, "Bishop +1 range on empty diagonal within base range")
+	g3.free()
 	var cap = new_game()
 	check(P.SYNERGY_CAP.dmg <= 0.5 and P.SYNERGY[P.WALL].is_empty(), "Synergy capped; walls give nothing")
 	g.free()
 	g2.free()
 	cap.free()
 
+
+
+func test_support_pattern_alignment() -> void:
+	var occ := {Vector2i(3, 6): true, Vector2i(5, 8): true}
+	var c := Vector2i(3, 8)
+	var sup_r := P.support_tiles(P.ROOK, c, 5, SIZE, occ)
+	var atk_r := P.attack_tiles(P.ROOK, c, 5, SIZE, occ, 0)
+	check(sup_r.has(Vector2i(3, 6)) and not sup_r.has(Vector2i(3, 5)), "Slider support includes first blocker")
+	check(atk_r.has(Vector2i(3, 7)) and not atk_r.has(Vector2i(3, 6)), "Slider attack stops before blocker")
+	for tile in atk_r:
+		check(sup_r.has(tile), "Rook support contains every attack tile")
+	check(
+		same_tiles(P.support_tiles(P.KNIGHT, c, 1, SIZE, {}), P.attack_tiles(P.KNIGHT, c, 1, SIZE, {}, 0)),
+		"Knight support equals attack"
+	)
+	check(
+		same_tiles(P.support_tiles(P.KING, c, 1, SIZE, {}), P.attack_tiles(P.KING, c, 1, SIZE, {}, 0)),
+		"King support equals attack"
+	)
+	check(
+		same_tiles(P.support_tiles(P.PAWN, c, 1, SIZE, {}), P.attack_tiles(P.PAWN, c, 1, SIZE, {}, 0)),
+		"Pawn support equals attack"
+	)
+	for type in P.ORDER:
+		if type == P.WALL:
+			continue
+		var g = new_game()
+		g.gold = 8000
+		g.place(P.KING, Vector2i(3, 11))
+		var cell := Vector2i(3, 8)
+		g.place(type, cell)
+		var sup: Array = P.support_tiles(type, cell, 1, Vector2i(g.COLS, g.ROWS), g.pieces)
+		var atk: Array = P.attack_tiles(type, cell, 1, Vector2i(g.COLS, g.ROWS), g.pieces, 0)
+		var atk_set := {}
+		for a in atk:
+			atk_set[a] = true
+		for s in sup:
+			if atk_set.has(s):
+				continue
+			if P.is_slider(type):
+				check(g.pieces.has(s), "Slider support only adds attack tiles or occupied blockers: %s" % s)
+			else:
+				check(false, "Non-slider support must match attack at %s" % s)
+		g.free()
 
 func test_phase_a_ui() -> void:
 	_clear_ls_test_file()

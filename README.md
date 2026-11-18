@@ -98,18 +98,19 @@ strip plus an **upgrade preview with before → after and the difference**, e.g.
 
 ### Synergy (pieces defend each other)
 
-Each piece buffs every friendly piece (towers and walls) standing on a square it **defends** —
-its chess attack pattern, where sliders also reach the first occupied square. Because towers
-need a one-tile gap, **Pawn** and **King** reach two squares out. Buffs stack additively and are capped.
+Each piece buffs every friendly piece (towers and walls) on squares it **attacks** in chess
+(same pattern as tower combat; sliders use base range with no synergy range bonus and include
+the first occupied square on each line). With the one-tile tower gap, **Pawn** and **King**
+bonuses only reach **adjacent** allies (e.g. a neighboring wall). Buffs stack additively and are capped.
 
 | Supporter | Defends | Bonus to each defended ally |
 |---|---|---|
-| Pawn   | (±1,-1) and (±2,-2) diagonally forward | +10% damage |
+| Pawn   | (±1,-1) diagonally forward (capture squares) | +10% damage |
 | Knight | its 8 L-jump squares | +12% attack speed |
 | Bishop | diagonal lines (up to its range) | +1 range for Rook/Bishop/Queen |
 | Rook   | orthogonal lines (up to its range) | +15% max HP |
 | Queen  | Rook + Bishop lines | +5% damage, +5% attack speed, +5% max HP |
-| King   | royal aura, every square within 2 | +8% damage, +8% attack speed |
+| King   | 8 adjacent squares (like a chess King) | +8% damage, +8% attack speed |
 | Wall   | — | none |
 
 Caps: +50% damage, +50% attack speed, +60% max HP, +2 range. HP buffs keep each piece's

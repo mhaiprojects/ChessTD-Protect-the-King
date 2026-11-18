@@ -46,7 +46,6 @@ const KNIGHT_JUMPS := [Vector2i(1, 2), Vector2i(2, 1), Vector2i(-1, 2), Vector2i
 ## Pawns face the mobs (top of the board = negative y) and capture diagonally forward.
 const PAWN_CAPTURES := [Vector2i(-1, -1), Vector2i(1, -1)]
 ## Tower gap rule: Pawn support reaches two squares out.
-const PAWN_SUPPORT := [Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-2, -2), Vector2i(2, -2)]
 
 
 static func apply_data(data: Dictionary) -> void:
@@ -162,9 +161,15 @@ static func is_slider(type: int) -> bool:
 	return type == ROOK or type == BISHOP or type == QUEEN
 
 
-## Squares a piece supports for synergy (see SYNERGY). Sliders include the first blocker.
+## Squares a piece buffs for synergy — same chess attack pattern as combat
+## (sliders use base slide_range only; first occupied square on each ray counts).
 static func support_tiles(type: int, cell: Vector2i, level: int, board_size: Vector2i, occupied: Dictionary) -> Array:
+	if type == WALL:
+		return []
+	if not is_slider(type):
+		return attack_tiles(type, cell, level, board_size, occupied, 0)
 	var out: Array = []
+	var rng := slide_range(level)
 	var dirs: Array = []
 	match type:
 		ROOK:
@@ -173,17 +178,8 @@ static func support_tiles(type: int, cell: Vector2i, level: int, board_size: Vec
 			dirs = DIAG
 		QUEEN:
 			dirs = ORTHO + DIAG
-		KNIGHT:
-			_jumps(out, cell, KNIGHT_JUMPS, board_size)
-		KING:
-			for dx in range(-2, 3):
-				for dy in range(-2, 3):
-					if dx != 0 or dy != 0:
-						_jumps(out, cell, [Vector2i(dx, dy)], board_size)
-		PAWN:
-			_jumps(out, cell, PAWN_SUPPORT, board_size)
 	for d in dirs:
-		for i in range(1, slide_range(level) + 1):
+		for i in range(1, rng + 1):
 			var c: Vector2i = cell + d * i
 			if not _inside(c, board_size):
 				break

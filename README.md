@@ -121,6 +121,15 @@ piece dialog lists the active synergy and how many allies the piece supports.
 
 **Speed [F]** cycles **x1 → x2 → x3 → x5 → x10** (`Engine.time_scale`). The simulation runs in
 fixed sub-steps of at most 1/30 s and caps very long frames, so x10 behaves like x1, just faster.
+It stays on the main HUD side panel (not in Settings).
+
+### Settings window
+
+**Settings [G]** opens a modal overlay (pauses the game; **Esc** or **Close [Esc]** dismisses it).
+Config, starting-layout save/load/default/delete, help text, Leaderboard, and Restart live here.
+Hotkeys for those actions still work anywhere in the match, even when Settings is closed.
+**Config [O]** opened from Settings stacks on top; **Esc** closes Config first, then Settings.
+Placement and wave feedback stays on the main HUD message line below Speed.
 
 ### Starting layouts
 
@@ -140,8 +149,9 @@ loaded automatically at every match start/restart, or **Delete [Shift+X]**.
 | U / S (Del) | upgrade / sell in the piece dialog (or select a piece first) |
 | C | **castling** in the piece dialog when shown (once per match) |
 | Space / Enter | start next wave |
+| G | open / close **Settings** (Config, layouts, help, Leaderboard, Restart) |
 | L | open / close **Leaderboard** (also opens at game end) |
-| F | cycle game speed x1 / x2 / x3 / x5 / x10 |
+| F | cycle game speed x1 / x2 / x3 / x5 / x10 (main HUD) |
 | O | open **Config** (bundled `res://config/*.json` + `user://configs/*.json`; Apply reloads and restarts) |
 | Shift+S / Shift+L / Shift+D / Shift+X | save / load / set default / delete starting layout |
 | Shift+R | restart the match |

@@ -13,6 +13,7 @@ var board_host: Control
 var hud_scroll: ScrollContainer
 var hud_panel: PanelContainer
 var lbl_stats: Label
+var lbl_build: Label
 var lbl_msg: Label
 var lbl_title: Label
 var lbl_help: Label
@@ -109,7 +110,8 @@ func _build_responsive_shell() -> void:
 	lbl_stats = _label("", 15)
 	v.add_child(lbl_stats)
 	v.add_child(HSeparator.new())
-	v.add_child(_label("Build (click a tile on your side):", 13, false))
+	lbl_build = _label("Build (click a tile on your side):", 13, false)
+	v.add_child(lbl_build)
 	var grid := GridContainer.new()
 	grid.columns = 2
 	v.add_child(grid)
@@ -964,10 +966,17 @@ func _process(_delta: float) -> void:
 		overlay_leaderboard.visible = true
 		overlay_leaderboard.z_index = 12
 		_refresh_leaderboard_text()
+	var build_locked: bool = game.phase == game.Phase.WAVE
+	if lbl_build != null:
+		lbl_build.text = (
+			"Build (locked during wave):" if build_locked else "Build (click a tile on your side):"
+		)
 	for t in build_buttons:
 		var b: Button = build_buttons[t]
 		b.set_pressed_no_signal(game.build_type == t)
-		b.disabled = game.gold < P.COST[t] or (t == P.KING and game.has_king())
+		b.disabled = (
+			build_locked or game.gold < P.COST[t] or (t == P.KING and game.has_king())
+		)
 	btn_start.disabled = not (game.phase == game.Phase.SETUP or game.phase == game.Phase.BETWEEN) or not game.has_king()
 	btn_speed.text = speed_button_text()
 	var has_sel := selected_layout_name() != ""

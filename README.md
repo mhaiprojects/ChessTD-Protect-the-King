@@ -51,7 +51,7 @@ ChessTD-Protect-the-King/
 1. **Setup phase** — arrange the starting board on your side (rows 4–12; the reddish top 3 rows are the enemy spawn zone). The **King is mandatory and unique**; it is free and can be moved or removed until the first wave starts.
 2. Buy towers and walls with gold (start: **200g**). Press **Start Wave** (or Space).
 3. **Enemy mobs** spawn at the top and path toward your King using A* pathfinding. Mobs go around your pieces when a route exists. If completely boxed in, they fall back to smashing through the cheapest line (no soft-locks).
-4. Towers shoot automatically at mobs on their chess attack squares. Kills and wave bonuses grant gold. Place, upgrade, and sell anytime (including mid-wave).
+4. Towers shoot automatically at mobs on their chess attack squares. Kills and wave bonuses grant gold. **Build** only during setup or between waves (not while a wave is running). Upgrade and sell still work mid-wave.
 5. **Score** rises with each kill (stronger mob types — especially **Promoted** — are worth more) and with each wave you clear. The HUD shows your live score.
 6. King HP is your lives — King destroyed = **Game Over**. Clear **all 20 waves** = **Victory**. Either way you get a **final score** overlay; the run is saved to the local top-10 leaderboard (`user://highscores.json`).
 
@@ -148,7 +148,7 @@ loaded automatically at every match start/restart, or **Delete [Shift+X]**.
 | 1–7 | build Pawn, Knight, Bishop, Rook, Queen, King, Wall |
 | U / S (Del) | upgrade / sell in the piece dialog (or select a piece first) |
 | C | **castling** in the piece dialog when shown (once per match) |
-| Space / Enter | start next wave |
+| Space / Enter | start next wave (build palette locks until the wave ends) |
 | G | open / close **Settings** (Config, layouts, help, Leaderboard, Restart) |
 | L | open / close **Leaderboard** (also opens at game end) |
 | F | cycle game speed x1 / x2 / x3 / x5 / x10 (main HUD) |

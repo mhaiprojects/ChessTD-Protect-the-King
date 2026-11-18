@@ -99,6 +99,7 @@ func _run() -> void:
 	test_patterns()
 	print("== Placement / setup ==")
 	test_placement()
+	await test_build_locked_during_wave_ui()
 	test_tower_adjacency()
 	test_path_validation()
 	print("== Mob types ==")
@@ -288,8 +289,37 @@ func test_placement() -> void:
 	check(g.sell(Vector2i(3, 8)) and g.gold == 140, "Sell Rook refunds 50%")
 	check(g.start_wave() and g.phase == g.Phase.WAVE and g.wave == 1, "Start wave 1")
 	check(not g.sell(Vector2i(6, 10)), "King locked once waves start")
-	check(g.place(P.BISHOP, Vector2i(0, 9)), "Can place towers during a wave")
+	check(
+		g.can_place(P.BISHOP, Vector2i(0, 9)) == "Can't build during a wave — wait for it to end.",
+		"Placement blocked during wave with message"
+	)
+	check(not g.place(P.BISHOP, Vector2i(0, 9)), "Cannot place during wave")
+	g.spawn_left = 0
+	g.mobs.clear()
+	g.step(0.05)
+	check(g.phase == g.Phase.BETWEEN, "Wave ends to BETWEEN")
+	check(g.place(P.BISHOP, Vector2i(0, 9)), "Placement allowed again between waves")
 	g.free()
+
+
+func test_build_locked_during_wave_ui() -> void:
+	var scene = load("res://scenes/main.tscn").instantiate()
+	root.add_child(scene)
+	await process_frame
+	var g = scene.get_node("Game")
+	var ui = scene.get_node("UI")
+	g.place(P.KING, Vector2i(3, 11))
+	g.start_wave()
+	await process_frame
+	check(g.build_type == -1, "build_type cleared when wave starts")
+	check(ui.build_buttons[P.PAWN].disabled, "Build buttons disabled during wave")
+	g.spawn_left = 0
+	g.mobs.clear()
+	g.step(0.05)
+	await process_frame
+	check(not ui.build_buttons[P.PAWN].disabled or g.gold < P.COST[P.PAWN], "Build buttons enabled in BETWEEN")
+	scene.queue_free()
+	await process_frame
 
 
 func test_tower_adjacency() -> void:

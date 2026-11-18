@@ -389,6 +389,8 @@ func _tower_adjacent(c: Vector2i) -> bool:
 func can_place(type: int, c: Vector2i) -> String:
 	if phase == Phase.GAME_OVER or phase == Phase.VICTORY:
 		return "Game is over - press Restart."
+	if phase == Phase.WAVE:
+		return "Can't build during a wave — wait for it to end."
 	if not in_bounds(c):
 		return "Outside the board."
 	if c.y < PLAYER_MIN_ROW:
@@ -587,6 +589,7 @@ func start_wave() -> bool:
 	wave_hp = 18.0 * M.hp_scale_for_wave(wave)
 	spawn_timer = 0.0
 	phase = Phase.WAVE
+	build_type = -1
 	_msg("Wave %d: %d mobs incoming!" % [wave, spawn_left])
 	return true
 

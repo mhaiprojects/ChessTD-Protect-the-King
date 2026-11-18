@@ -153,6 +153,15 @@ Once per match you can **swap the King's position with a Rook tower** (like ches
 * **Safety:** neither tile may be occupied by a mob; the swap must still leave at least one path from the spawn zone to the **new** King square (same rule as placement).
 * **UI:** eligible Rooks get a **blue tile highlight** while castling is still available; the HUD shows **Castling: available / unavailable / used**. The button greys out after use. **Restart** resets the flag.
 
+## Development
+
+Coding help runs in one persistent cursor-agent chat on buspc, chat ID
+`0815bd5c-711b-490d-a6e2-892f4a3be3d4`. Resume it from this folder:
+
+```
+cursor-agent -p --trust --resume 0815bd5c-711b-490d-a6e2-892f4a3be3d4 "<request>"
+```
+
 ## Limitations (PoC)
 
 * Towers hit one mob per shot (closest to the King’s side among valid targets).

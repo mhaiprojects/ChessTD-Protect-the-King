@@ -145,6 +145,8 @@ func _run() -> void:
 	test_config_loader()
 	print("== Phase B: config UI apply ==")
 	await test_config_ui()
+	print("== Settings window ==")
+	await test_settings_window()
 	print("\nRESULT: %d passed, %d failed" % [passed, failed])
 	quit(1 if failed > 0 else 0)
 
@@ -968,7 +970,8 @@ func test_phase_a_ui() -> void:
 	var ui = scene.get_node("UI")
 	check(ui.build_buttons[P.PAWN].text.begins_with("[1] Pawn"), "Build button shows [1] Pawn")
 	check(ui.build_buttons[P.WALL].text == "[7] Wall 100g", "Wall button shows key and 100g")
-	check(ui.btn_speed.text == "Speed x1 [F]" and ui.btn_restart.text.contains("["), "Speed/Restart buttons show keys")
+	check(ui.btn_speed.text == "Speed x1 [F]" and ui.btn_settings.text == "Settings [G]", "Speed/Settings HUD buttons show keys")
+	check(ui.btn_restart.text.contains("["), "Restart button in Settings shows key")
 	var key := InputEventKey.new()
 	key.pressed = true
 	key.keycode = KEY_F
@@ -1011,7 +1014,8 @@ func test_config_loader() -> void:
 	check(SC.KILL_BASE[M.PROMOTED] == 32 and SC.wave_clear_points(1) == 26, "Scoring loaded from JSON")
 	check(CFG.start_gold() == 200 and CFG.max_waves() == 20, "Match settings from JSON")
 	check(CFG.speed_options().size() == 5 and float(CFG.speed_options()[4]) == 10.0, "Speed options from JSON")
-	check(CFG.key_label("config") == "O" and CFG.key_label("speed") == "F", "Keybindings from JSON")
+	check(CFG.key_label("config") == "O" and CFG.key_label("speed") == "F" and CFG.key_label("settings") == "G",
+		"Keybindings from JSON")
 	var listed := CFG.list_configs()
 	var paths: Array = []
 	for e in listed:
@@ -1100,3 +1104,49 @@ func test_config_ui() -> void:
 	await process_frame
 	CFG.reload_defaults()
 	_clear_user_configs()
+
+
+func test_settings_window() -> void:
+	var scene = load("res://scenes/main.tscn").instantiate()
+	root.add_child(scene)
+	await process_frame
+	var ui = scene.get_node("UI")
+	var tree = scene.get_tree()
+	check(ui.btn_settings != null and ui.btn_speed != null and ui.lbl_msg != null, "Settings, Speed, message line on HUD")
+	check(ui.btn_settings.text == "Settings [G]", "Settings button shows [G]")
+	var hud_v: VBoxContainer = ui.hud_panel.get_child(0) as VBoxContainer
+	var hud_button_texts: PackedStringArray = []
+	for c in hud_v.get_children():
+		if c is Button:
+			hud_button_texts.append((c as Button).text)
+	check(
+		not hud_button_texts.has(ui.btn_config.text) and hud_button_texts.has(ui.btn_speed.text),
+		"Config not on main HUD; Speed stays"
+	)
+	check(ui.btn_config != null and ui.layout_select != null and ui.btn_leaderboard != null, "Moved controls exist in Settings")
+	check(not ui.settings_dialog_open(), "Settings closed at start")
+	ui.open_settings_dialog()
+	check(ui.settings_dialog_open() and tree.paused, "Open Settings pauses game")
+	var gkey := InputEventKey.new()
+	gkey.pressed = true
+	gkey.keycode = KEY_G
+	ui._unhandled_input(gkey)
+	check(not ui.settings_dialog_open() and not tree.paused, "G toggles Settings closed")
+	ui.open_settings_dialog()
+	var okey := InputEventKey.new()
+	okey.pressed = true
+	okey.keycode = KEY_O
+	ui._unhandled_input(okey)
+	check(ui._config_dialog_open and ui.settings_dialog_open() and tree.paused, "Config nests inside Settings pause")
+	var esc := InputEventKey.new()
+	esc.pressed = true
+	esc.keycode = KEY_ESCAPE
+	ui._unhandled_input(esc)
+	check(not ui._config_dialog_open and ui.settings_dialog_open() and tree.paused, "Esc closes Config first")
+	ui._unhandled_input(esc)
+	check(not ui.settings_dialog_open() and not tree.paused, "Esc closes Settings and unpauses")
+	ui.open_settings_dialog()
+	ui.btn_settings_close.pressed.emit()
+	check(not ui.settings_dialog_open() and not tree.paused, "Close [Esc] button works")
+	scene.queue_free()
+	await process_frame

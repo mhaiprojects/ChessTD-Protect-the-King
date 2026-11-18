@@ -28,6 +28,11 @@ func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.size() > 0:
 		out = args[0]
+	if args.size() > 1 and str(args[1]) == "--settings":
+		var ui = scene.get_node("UI")
+		ui.open_settings_dialog()
+		for i in 8:
+			await process_frame
 	root.get_texture().get_image().save_png(out)
 	print("saved ", out)
 	quit()

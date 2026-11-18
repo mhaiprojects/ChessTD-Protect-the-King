@@ -25,13 +25,17 @@ Source: https://github.com/mhaiprojects/ChessTD-Protect-the-King
 ```
 ChessTD-Protect-the-King/
 ├── project.godot          # project config, main scene, resizable window + stretch
+├── config/
+│   ├── game_data.json     # pieces, mobs, waves, upgrades, synergy, scoring
+│   └── settings.json      # board, match defaults, speed, keys, UI
 ├── scenes/main.tscn       # Main(Node) -> Game(Node2D, game.gd) + UI(CanvasLayer, ui.gd)
 ├── scripts/
-│   ├── pieces.gd          # piece stats + pure chess attack-pattern functions
+│   ├── config.gd          # JSON loader, validation, fallback, list/apply configs
+│   ├── pieces.gd          # chess attack patterns + balance tables from game_data
 │   ├── draw_art.gd        # vector board theme, chess silhouettes, HP bars, UI palette
-│   ├── mobs.gd            # mob types, 20-wave spawn table, stats, draw shapes
+│   ├── mobs.gd            # mob draw shapes + stats/waves from game_data
 │   ├── game.gd            # board state, placement, waves, mob AI (A*), combat, input, _draw()
-│   ├── scoring.gd         # match score (kills by mob type, wave-clear bonuses)
+│   ├── scoring.gd         # match score (from game_data)
 │   ├── highscores.gd      # local JSON leaderboard (top 10; path overridable in tests)
 │   ├── layouts.gd         # saved starting layouts + default (user://layouts.json)
 │   └── ui.gd              # side-panel HUD built in code (stats, build palette, buttons)
@@ -138,6 +142,7 @@ loaded automatically at every match start/restart, or **Delete [Shift+X]**.
 | Space / Enter | start next wave |
 | L | open / close **Leaderboard** (also opens at game end) |
 | F | cycle game speed x1 / x2 / x3 / x5 / x10 |
+| O | open **Config** (bundled `res://config/*.json` + `user://configs/*.json`; Apply reloads and restarts) |
 | Shift+S / Shift+L / Shift+D / Shift+X | save / load / set default / delete starting layout |
 | Shift+R | restart the match |
 

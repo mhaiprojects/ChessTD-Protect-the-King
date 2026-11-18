@@ -33,6 +33,7 @@ ChessTD-Protect-the-King/
 │   ├── game.gd            # board state, placement, waves, mob AI (A*), combat, input, _draw()
 │   ├── scoring.gd         # match score (kills by mob type, wave-clear bonuses)
 │   ├── highscores.gd      # local JSON leaderboard (top 10; path overridable in tests)
+│   ├── layouts.gd         # saved starting layouts + default (user://layouts.json)
 │   └── ui.gd              # side-panel HUD built in code (stats, build palette, buttons)
 ├── tests/
 │   ├── test_runner.gd     # headless test suite (patterns, placement, waves, combat, UI)
@@ -75,17 +76,54 @@ If a mob **reaches the bottom row** (row 12 on the board, `y = 11`) without bein
 
 ### Pieces (towers)
 
-| Piece | Cost | Attacks (chess move pattern) |
-|---|---|---|
-| King (K)   | free | 1 square in all 8 directions |
-| Queen (Q)  | 120 | Rook + Bishop lines |
-| Rook (R)   | 60  | horizontal / vertical lines |
-| Bishop (B) | 50  | diagonal lines |
-| Knight (N) | 45  | L-jumps (jumps over pieces) |
-| Pawn (P)   | 20  | two forward-diagonal capture squares (toward the mobs) |
-| Wall (#)   | 10  | none — HP blocker |
+| Key | Piece | Cost | Attacks (chess move pattern) |
+|---|---|---|---|
+| 1 | Pawn (P)   | 20  | two forward-diagonal capture squares (toward the mobs) |
+| 2 | Knight (N) | 45  | L-jumps (jumps over pieces) |
+| 3 | Bishop (B) | 50  | diagonal lines |
+| 4 | Rook (R)   | 60  | horizontal / vertical lines |
+| 5 | Queen (Q)  | 120 | Rook + Bishop lines |
+| 6 | King (K)   | free | 1 square in all 8 directions |
+| 7 | Wall (#)   | 100 | none — HP blocker |
 
-Sliding pieces (R/B/Q) are blocked by your own pieces/walls and have max range `2 + level` squares (3 at L1 up to 7 at L5). **Upgrades (L1–L5):** select a piece, press **U** or the Upgrade button; cost scales per level (shown in the HUD), towers gain +60% base damage per level and +25% HP, **walls gain +50% HP per level**. Level pips are drawn under each piece. Sell refunds 50% of everything spent.
+Sliding pieces (R/B/Q) are blocked by your own pieces/walls and have max range `2 + level` squares (3 at L1 up to 7 at L5). **Upgrades (L1–L5):** select a piece, press **U** or the Upgrade button; cost scales per level (shown in the HUD), towers gain +60% base damage per level and +25% HP, **walls gain +50% HP per level**. Sell refunds 50% of everything spent.
+
+Every piece shows its **HP bar with numbers** (`37/40`), a vector **sword icon + attack damage**
+(gold when buffed) and its **level as current/max** (`2/5`). The piece dialog shows the same
+strip plus an **upgrade preview with before → after and the difference**, e.g. `DMG 7.0 -> 11.2 (+4.2)`.
+
+### Synergy (pieces defend each other)
+
+Each piece buffs every friendly piece (towers and walls) standing on a square it **defends** —
+its chess attack pattern, where sliders also reach the first occupied square. Because towers
+need a one-tile gap, **Pawn** and **King** reach two squares out. Buffs stack additively and are capped.
+
+| Supporter | Defends | Bonus to each defended ally |
+|---|---|---|
+| Pawn   | (±1,-1) and (±2,-2) diagonally forward | +10% damage |
+| Knight | its 8 L-jump squares | +12% attack speed |
+| Bishop | diagonal lines (up to its range) | +1 range for Rook/Bishop/Queen |
+| Rook   | orthogonal lines (up to its range) | +15% max HP |
+| Queen  | Rook + Bishop lines | +5% damage, +5% attack speed, +5% max HP |
+| King   | royal aura, every square within 2 | +8% damage, +8% attack speed |
+| Wall   | — | none |
+
+Caps: +50% damage, +50% attack speed, +60% max HP, +2 range. HP buffs keep each piece's
+current HP ratio when they appear or disappear. Buffed pieces get a soft gold glow; faint dashed
+gold links run from supporters to the allies they buff (highlighted for the selected piece). The
+piece dialog lists the active synergy and how many allies the piece supports.
+
+### Game speed
+
+**Speed [F]** cycles **x1 → x2 → x3 → x5 → x10** (`Engine.time_scale`). The simulation runs in
+fixed sub-steps of at most 1/30 s and caps very long frames, so x10 behaves like x1, just faster.
+
+### Starting layouts
+
+**Save [Shift+S]** stores the current board (pieces, squares, levels) as `Layout N` in
+`user://layouts.json`. Pick one in the list and **Load [Shift+L]** (setup phase only — pieces are
+bought again with normal rules and gold), **Default [Shift+D]** to toggle it as the layout that is
+loaded automatically at every match start/restart, or **Delete [Shift+X]**.
 
 ### Controls
 
@@ -94,11 +132,16 @@ Sliding pieces (R/B/Q) are blocked by your own pieces/walls and have max range `
 | Left click empty tile | place the selected build type |
 | Left click a piece | open **piece options** dialog (pauses game; attack squares highlighted) |
 | Right click / Esc | cancel selection / build type |
-| 1–7 | build King, Queen, Rook, Bishop, Knight, Pawn, Wall |
+| 1–7 | build Pawn, Knight, Bishop, Rook, Queen, King, Wall |
 | U / S (Del) | upgrade / sell in the piece dialog (or select a piece first) |
 | C | **castling** in the piece dialog when shown (once per match) |
 | Space / Enter | start next wave |
 | L | open / close **Leaderboard** (also opens at game end) |
+| F | cycle game speed x1 / x2 / x3 / x5 / x10 |
+| Shift+S / Shift+L / Shift+D / Shift+X | save / load / set default / delete starting layout |
+| Shift+R | restart the match |
+
+Every button shows its key in `[ ]`.
 
 Hovering with a tower type selected previews the piece and its attack squares (when legal).
 

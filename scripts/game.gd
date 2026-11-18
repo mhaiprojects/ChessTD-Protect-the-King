@@ -7,26 +7,29 @@ const M := preload("res://scripts/mobs.gd")
 const DA := preload("res://scripts/draw_art.gd")
 const SC := preload("res://scripts/scoring.gd")
 const HS := preload("res://scripts/highscores.gd")
+const CFG := preload("res://scripts/config.gd")
 
-const COLS := 8
-const ROWS := 12
-const BASE_TILE := 56.0
-const BASE_MARGIN := 16.0
-var tile_size := BASE_TILE
-var board_origin := Vector2(BASE_MARGIN, BASE_MARGIN)
-const PLAYER_MIN_ROW := 3          # rows 0..2 = enemy spawn zone, 3..11 = player side
-const MAX_WAVES := 20
-const START_GOLD := 200
-const PIECE_PATH_WEIGHT := 12.0    # mobs path around pieces, but will smash through if fully walled
-const SPAWN_INTERVAL := 1.2
-const MOB_ATTACK_RATE := 1.0
+## Board / match / speed — filled from config/settings.json via apply_settings().
+var COLS := 8
+var ROWS := 12
+var BASE_TILE := 56.0
+var BASE_MARGIN := 16.0
+var tile_size := 56.0
+var board_origin := Vector2(16, 16)
+var PLAYER_MIN_ROW := 3          # rows 0..2 = enemy spawn zone, 3..11 = player side
+var MAX_WAVES := 20
+var START_GOLD := 200
+var PIECE_PATH_WEIGHT := 12.0    # mobs path around pieces, but will smash through if fully walled
+var SPAWN_INTERVAL := 1.2
+var MOB_ATTACK_RATE := 1.0
 ## Castling: King swaps with a Rook on the same rank, horizontal distance 2–4 tiles (once per match).
-const CASTLING_MIN_H := 2
-const CASTLING_MAX_H := 4
+var CASTLING_MIN_H := 2
+var CASTLING_MAX_H := 4
 ## Game speed multipliers (Engine.time_scale). Simulation sub-steps keep x10 stable.
-const SPEED_OPTIONS := [1.0, 2.0, 3.0, 5.0, 10.0]
-const MAX_SIM_STEP := 1.0 / 30.0
-const MAX_FRAME_DELTA := 0.25
+var SPEED_OPTIONS: Array = [1.0, 2.0, 3.0, 5.0, 10.0]
+var MAX_SIM_STEP := 1.0 / 30.0
+var MAX_FRAME_DELTA := 0.25
+var SELL_REFUND_RATIO := 0.5
 
 enum Phase { SETUP, WAVE, BETWEEN, GAME_OVER, VICTORY }
 const PHASE_NAMES := ["Setup", "Wave running", "Build (between waves)", "GAME OVER", "VICTORY"]
@@ -95,17 +98,58 @@ var speed_index := 0
 
 
 func _init() -> void:
+	CFG.ensure_loaded()
+	apply_settings()
+	_rebuild_astar()
+	rng.randomize()
+	reset()
+
+
+## Pull board/match/speed values from the active settings config.
+func apply_settings() -> void:
+	CFG.ensure_loaded()
+	var st: Dictionary = CFG.settings
+	var board: Dictionary = st.get("board", {})
+	var match_s: Dictionary = st.get("match", {})
+	var castling: Dictionary = st.get("castling", {})
+	var speed: Dictionary = st.get("speed", {})
+	COLS = int(board.get("cols", 8))
+	ROWS = int(board.get("rows", 12))
+	BASE_TILE = float(board.get("base_tile", 56.0))
+	BASE_MARGIN = float(board.get("base_margin", 16.0))
+	PLAYER_MIN_ROW = int(board.get("player_min_row", 3))
+	START_GOLD = int(match_s.get("start_gold", 200))
+	MAX_WAVES = int(match_s.get("max_waves", 20))
+	SPAWN_INTERVAL = float(match_s.get("spawn_interval", 1.2))
+	MOB_ATTACK_RATE = float(match_s.get("mob_attack_rate", 1.0))
+	PIECE_PATH_WEIGHT = float(match_s.get("piece_path_weight", 12.0))
+	SELL_REFUND_RATIO = float(match_s.get("sell_refund_ratio", 0.5))
+	CASTLING_MIN_H = int(castling.get("min_h", 2))
+	CASTLING_MAX_H = int(castling.get("max_h", 4))
+	SPEED_OPTIONS = []
+	for v in speed.get("options", [1.0, 2.0, 3.0, 5.0, 10.0]):
+		SPEED_OPTIONS.append(float(v))
+	if SPEED_OPTIONS.is_empty():
+		SPEED_OPTIONS = [1.0, 2.0, 3.0, 5.0, 10.0]
+	MAX_SIM_STEP = float(speed.get("max_sim_step", 1.0 / 30.0))
+	MAX_FRAME_DELTA = float(speed.get("max_frame_delta", 0.25))
+	tile_size = BASE_TILE
+	board_origin = Vector2(BASE_MARGIN, BASE_MARGIN)
+	speed_index = clampi(speed_index, 0, SPEED_OPTIONS.size() - 1)
+
+
+func _rebuild_astar() -> void:
 	astar.region = Rect2i(0, 0, COLS, ROWS)
 	astar.cell_size = Vector2(1, 1)
 	astar.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_NEVER
 	astar.default_compute_heuristic = AStarGrid2D.HEURISTIC_MANHATTAN
 	astar.default_estimate_heuristic = AStarGrid2D.HEURISTIC_MANHATTAN
 	astar.update()
-	rng.randomize()
-	reset()
 
 
 func reset() -> void:
+	apply_settings()
+	_rebuild_astar()
 	pieces.clear()
 	mobs.clear()
 	shots.clear()
@@ -125,6 +169,7 @@ func reset() -> void:
 	match_result = ""
 	_match_recorded = false
 	castling_used = false
+	set_speed_index(speed_index)
 	_board_changed()
 	_msg("Setup: place your King (mandatory), then towers and walls. Press Start Wave.")
 
@@ -421,7 +466,7 @@ func sell(c: Vector2i) -> bool:
 	if p.type == P.KING and phase != Phase.SETUP:
 		_msg("The King can only be moved/removed during setup.")
 		return false
-	var refund: int = p.spent / 2
+	var refund: int = int(floor(float(p.spent) * SELL_REFUND_RATIO))
 	gold += refund
 	pieces.erase(c)
 	if p.type == P.KING:
@@ -921,25 +966,28 @@ func _unhandled_input(event: InputEvent) -> void:
 		hover = world_to_cell(_pointer_canvas_pos(event))
 	elif event is InputEventMouseButton and event.pressed:
 		handle_click(world_to_cell(_pointer_canvas_pos(event)), event.button_index)
-	elif event is InputEventKey and event.pressed and not event.echo and not event.shift_pressed:
-		match event.keycode:
-			KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7:
-				build_type = P.ORDER[event.keycode - KEY_1]
-			KEY_U:
-				upgrade(selected)
-			KEY_S, KEY_DELETE:
-				sell(selected)
-			KEY_SPACE, KEY_ENTER:
-				start_wave()
-			KEY_C:
-				try_castle()
-			KEY_ESCAPE:
-				var ui = get_parent().get_node_or_null("UI")
-				if ui != null and ui.has_method("piece_options_open") and ui.piece_options_open():
-					ui.close_piece_options()
-				else:
-					selected = Vector2i(-1, -1)
-					build_type = -1
+	elif event is InputEventKey and event.pressed and not event.echo:
+		var bi := CFG.build_hotkey_index(event)
+		if bi >= 0 and bi < P.ORDER.size():
+			build_type = P.ORDER[bi]
+			return
+		if event.shift_pressed:
+			return
+		if CFG.matches_key(event, "upgrade"):
+			upgrade(selected)
+		elif CFG.matches_key(event, "sell") or CFG.matches_key(event, "sell_alt"):
+			sell(selected)
+		elif CFG.matches_key(event, "start_wave") or CFG.matches_key(event, "start_wave_alt"):
+			start_wave()
+		elif CFG.matches_key(event, "castle"):
+			try_castle()
+		elif CFG.matches_key(event, "cancel"):
+			var ui = get_parent().get_node_or_null("UI")
+			if ui != null and ui.has_method("piece_options_open") and ui.piece_options_open():
+				ui.close_piece_options()
+			else:
+				selected = Vector2i(-1, -1)
+				build_type = -1
 
 
 func handle_click(c: Vector2i, button: int) -> void:

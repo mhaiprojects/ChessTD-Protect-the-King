@@ -5,6 +5,7 @@ const P := preload("res://scripts/pieces.gd")
 const HS := preload("res://scripts/highscores.gd")
 const DA := preload("res://scripts/draw_art.gd")
 const LS := preload("res://scripts/layouts.gd")
+const CFG := preload("res://scripts/config.gd")
 
 var game
 var layout_root: Control
@@ -13,6 +14,8 @@ var hud_scroll: ScrollContainer
 var hud_panel: PanelContainer
 var lbl_stats: Label
 var lbl_msg: Label
+var lbl_title: Label
+var lbl_help: Label
 var build_buttons := {}
 var btn_start: Button
 var btn_upgrade: Button
@@ -22,6 +25,7 @@ var btn_dialog_castle: Button
 var btn_dialog_close: Button
 var btn_leaderboard: Button
 var btn_speed: Button
+var btn_config: Button
 var layout_select: OptionButton
 var btn_layout_save: Button
 var btn_layout_load: Button
@@ -40,9 +44,18 @@ var lbl_final_body: Label
 var lbl_leaderboard_body: Label
 var _end_overlay_shown := false
 var _ui_styles: Dictionary = {}
+var config_dimmer: ColorRect
+var config_dialog: PanelContainer
+var config_list: ItemList
+var btn_config_apply: Button
+var btn_config_close: Button
+var lbl_config_status: Label
+var _config_dialog_open := false
+var _config_entries: Array = []
 
 
 func _ready() -> void:
+	CFG.ensure_loaded()
 	game = get_parent().get_node("Game")
 	_ui_styles = DA.make_ui_styles()
 	_build_responsive_shell()
@@ -67,8 +80,9 @@ func _build_responsive_shell() -> void:
 	board_host.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	hbox.add_child(board_host)
 
+	var hud_w: float = float(CFG.settings.get("ui", {}).get("hud_min_width", 228))
 	hud_scroll = ScrollContainer.new()
-	hud_scroll.custom_minimum_size = Vector2(228, 0)
+	hud_scroll.custom_minimum_size = Vector2(hud_w, 0)
 	hud_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	hud_scroll.size_flags_horizontal = Control.SIZE_SHRINK_END
 	hud_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -76,7 +90,7 @@ func _build_responsive_shell() -> void:
 
 	hud_panel = PanelContainer.new()
 	hud_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hud_panel.custom_minimum_size = Vector2(228, 0)
+	hud_panel.custom_minimum_size = Vector2(hud_w, 0)
 	hud_panel.add_theme_stylebox_override("panel", _ui_styles.panel)
 	hud_scroll.add_child(hud_panel)
 
@@ -84,7 +98,9 @@ func _build_responsive_shell() -> void:
 	v.add_theme_constant_override("separation", 8)
 	hud_panel.add_child(v)
 
-	v.add_child(_label("ChessTD : Protect the King", 18, true))
+	var ui_cfg: Dictionary = CFG.settings.get("ui", {})
+	lbl_title = _label(str(ui_cfg.get("title", "ChessTD : Protect the King")), 18, true)
+	v.add_child(lbl_title)
 	lbl_stats = _label("", 15)
 	v.add_child(lbl_stats)
 	v.add_child(HSeparator.new())
@@ -104,28 +120,27 @@ func _build_responsive_shell() -> void:
 		build_buttons[t] = b
 		grid.add_child(b)
 	v.add_child(HSeparator.new())
-	btn_start = _button("Start Wave  [Space]")
+	btn_start = _button(start_button_text())
 	btn_start.pressed.connect(func(): game.start_wave())
 	v.add_child(btn_start)
 	btn_speed = _button(speed_button_text())
 	btn_speed.pressed.connect(_on_speed)
 	v.add_child(btn_speed)
+	btn_config = _button(config_button_text())
+	btn_config.pressed.connect(open_config_dialog)
+	v.add_child(btn_config)
 	v.add_child(HSeparator.new())
 	_build_layout_section(v)
 	v.add_child(HSeparator.new())
 	lbl_msg = _label("", 13)
 	lbl_msg.add_theme_color_override("font_color", Color(0.98, 0.86, 0.52))
 	v.add_child(lbl_msg)
-	v.add_child(
-		_label(
-			"Left-click: place / select piece   Right-click: cancel\nPiece menu pauses the game.  Esc closes it.",
-			11, false, DA.UI_TEXT_DIM
-		)
-	)
-	btn_leaderboard = _button("Leaderboard [L]")
+	lbl_help = _label(str(ui_cfg.get("help_text", "")), 11, false, DA.UI_TEXT_DIM)
+	v.add_child(lbl_help)
+	btn_leaderboard = _button(leaderboard_button_text())
 	btn_leaderboard.pressed.connect(toggle_leaderboard)
 	v.add_child(btn_leaderboard)
-	btn_restart = _button("Restart [Shift+R]")
+	btn_restart = _button(restart_button_text())
 	btn_restart.pressed.connect(_on_restart)
 	v.add_child(btn_restart)
 
@@ -135,21 +150,72 @@ func _build_responsive_shell() -> void:
 	overlay_leaderboard = _overlay_panel()
 	overlay_leaderboard.z_index = 4
 	lbl_leaderboard_body = _overlay_label(overlay_leaderboard)
-	var lb_close := _button("Close [L / Esc]")
+	var lb_close := _button("Close [%s / %s]" % [CFG.key_label("leaderboard"), CFG.key_label("cancel")])
 	lb_close.pressed.connect(func(): overlay_leaderboard.visible = false)
 	overlay_leaderboard.get_child(0).add_child(lb_close)
 
 	_build_piece_dialog()
+	_build_config_dialog()
 
 	get_viewport().size_changed.connect(_refresh_layout)
 
 
 func build_button_text(i: int, t: int) -> String:
-	return "[%d] %s %dg" % [i + 1, P.NAMES[t], P.COST[t]]
+	var keys: Array = CFG.settings.get("keys", {}).get("build", [])
+	var key := str(keys[i]) if i < keys.size() else str(i + 1)
+	return "[%s] %s %dg" % [key, P.NAMES[t], P.COST[t]]
 
 
 func speed_button_text() -> String:
-	return "Speed %s [F]" % game.speed_label()
+	return "Speed %s [%s]" % [game.speed_label(), CFG.key_label("speed")]
+
+
+func start_button_text() -> String:
+	return "Start Wave  [%s]" % CFG.key_label("start_wave")
+
+
+func config_button_text() -> String:
+	return "Config [%s]" % CFG.key_label("config")
+
+
+func leaderboard_button_text() -> String:
+	return "Leaderboard [%s]" % CFG.key_label("leaderboard")
+
+
+func restart_button_text() -> String:
+	return "Restart [%s]" % CFG.key_label("restart")
+
+
+func refresh_action_labels() -> void:
+	if btn_start != null:
+		btn_start.text = start_button_text()
+	if btn_speed != null:
+		btn_speed.text = speed_button_text()
+	if btn_config != null:
+		btn_config.text = config_button_text()
+	if btn_leaderboard != null:
+		btn_leaderboard.text = leaderboard_button_text()
+	if btn_restart != null:
+		btn_restart.text = restart_button_text()
+	if btn_layout_save != null:
+		btn_layout_save.text = "Save [%s]" % CFG.key_label("layout_save")
+		btn_layout_load.text = "Load [%s]" % CFG.key_label("layout_load")
+		btn_layout_default.text = "Default [%s]" % CFG.key_label("layout_default")
+		btn_layout_delete.text = "Delete [%s]" % CFG.key_label("layout_delete")
+	if btn_upgrade != null:
+		btn_upgrade.text = "Upgrade [%s]" % CFG.key_label("upgrade")
+		btn_sell.text = "Sell [%s]" % CFG.key_label("sell")
+		btn_dialog_castle.text = "Castle [%s]" % CFG.key_label("castle")
+		btn_dialog_close.text = "Close [%s]" % CFG.key_label("cancel")
+	for i in P.ORDER.size():
+		var t: int = P.ORDER[i]
+		if build_buttons.has(t):
+			build_buttons[t].text = build_button_text(i, t)
+	var ui_cfg: Dictionary = CFG.settings.get("ui", {})
+	if lbl_title != null:
+		lbl_title.text = str(ui_cfg.get("title", lbl_title.text))
+	if lbl_help != null:
+		lbl_help.text = str(ui_cfg.get("help_text", lbl_help.text))
 
 
 func _on_speed() -> void:
@@ -169,13 +235,13 @@ func _build_layout_section(v: VBoxContainer) -> void:
 	var grid := GridContainer.new()
 	grid.columns = 2
 	v.add_child(grid)
-	btn_layout_save = _button("Save [Shift+S]")
+	btn_layout_save = _button("Save [%s]" % CFG.key_label("layout_save"))
 	btn_layout_save.pressed.connect(save_current_layout)
-	btn_layout_load = _button("Load [Shift+L]")
+	btn_layout_load = _button("Load [%s]" % CFG.key_label("layout_load"))
 	btn_layout_load.pressed.connect(load_selected_layout)
-	btn_layout_default = _button("Default [Shift+D]")
+	btn_layout_default = _button("Default [%s]" % CFG.key_label("layout_default"))
 	btn_layout_default.pressed.connect(toggle_default_layout)
-	btn_layout_delete = _button("Delete [Shift+X]")
+	btn_layout_delete = _button("Delete [%s]" % CFG.key_label("layout_delete"))
 	btn_layout_delete.pressed.connect(delete_selected_layout)
 	for b in [btn_layout_save, btn_layout_load, btn_layout_default, btn_layout_delete]:
 		grid.add_child(b)
@@ -297,19 +363,19 @@ func _build_piece_dialog() -> void:
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
-	btn_upgrade = _button("Upgrade [U]")
+	btn_upgrade = _button("Upgrade [%s]" % CFG.key_label("upgrade"))
 	btn_upgrade.pressed.connect(_dialog_upgrade)
-	btn_sell = _button("Sell [S]")
+	btn_sell = _button("Sell [%s]" % CFG.key_label("sell"))
 	btn_sell.pressed.connect(_dialog_sell)
 	row.add_child(btn_upgrade)
 	row.add_child(btn_sell)
 	box.add_child(row)
 
-	btn_dialog_castle = _button("Castle [C]")
+	btn_dialog_castle = _button("Castle [%s]" % CFG.key_label("castle"))
 	btn_dialog_castle.pressed.connect(_dialog_castle)
 	box.add_child(btn_dialog_castle)
 
-	btn_dialog_close = _button("Close [Esc]")
+	btn_dialog_close = _button("Close [%s]" % CFG.key_label("cancel"))
 	btn_dialog_close.pressed.connect(close_piece_options)
 	box.add_child(btn_dialog_close)
 
@@ -366,6 +432,114 @@ func _position_piece_dialog(vp: Rect2) -> void:
 	piece_dialog.custom_minimum_size = dlg_sz
 	piece_dialog.size = dlg_sz
 	piece_dialog.position = (vp.size - dlg_sz) * 0.5
+	if config_dimmer != null:
+		config_dimmer.position = Vector2.ZERO
+		config_dimmer.size = vp.size
+		var cfg_sz := Vector2(minf(420, vp.size.x * 0.92), minf(460, vp.size.y * 0.85))
+		config_dialog.custom_minimum_size = cfg_sz
+		config_dialog.size = cfg_sz
+		config_dialog.position = (vp.size - cfg_sz) * 0.5
+
+
+func _build_config_dialog() -> void:
+	config_dimmer = ColorRect.new()
+	config_dimmer.color = Color(0.04, 0.05, 0.07, 0.62)
+	config_dimmer.visible = false
+	config_dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
+	config_dimmer.z_index = 8
+	add_child(config_dimmer)
+
+	config_dialog = PanelContainer.new()
+	config_dialog.visible = false
+	config_dialog.mouse_filter = Control.MOUSE_FILTER_STOP
+	config_dialog.z_index = 9
+	var dlg_style: StyleBoxFlat = _ui_styles.panel.duplicate()
+	dlg_style.bg_color = Color(0.08, 0.09, 0.12, 0.97)
+	dlg_style.set_border_width_all(2)
+	dlg_style.border_color = DA.UI_BORDER
+	config_dialog.add_theme_stylebox_override("panel", dlg_style)
+	add_child(config_dialog)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	config_dialog.add_child(box)
+	box.add_child(_label("Config files", 17, true))
+	box.add_child(_label("Bundled res://config/*.json and user://configs/*.json. Apply reloads data and restarts the match.", 12, false, DA.UI_TEXT_DIM))
+	config_list = ItemList.new()
+	config_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	config_list.custom_minimum_size = Vector2(0, 180)
+	config_list.focus_mode = Control.FOCUS_NONE
+	box.add_child(config_list)
+	lbl_config_status = _label("", 12, false, DA.UI_ACCENT)
+	box.add_child(lbl_config_status)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	box.add_child(row)
+	btn_config_apply = _button("Apply & Restart")
+	btn_config_apply.pressed.connect(apply_selected_config)
+	row.add_child(btn_config_apply)
+	btn_config_close = _button("Close [%s]" % CFG.key_label("cancel"))
+	btn_config_close.pressed.connect(close_config_dialog)
+	row.add_child(btn_config_close)
+
+
+func open_config_dialog() -> void:
+	close_piece_options()
+	_config_dialog_open = true
+	config_dimmer.visible = true
+	config_dialog.visible = true
+	get_tree().paused = true
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	refresh_config_list()
+	lbl_config_status.text = "Active game data: %s\nActive settings: %s" % [
+		CFG.active_game_data_path.get_file(), CFG.active_settings_path.get_file(),
+	]
+	_refresh_layout()
+
+
+func close_config_dialog() -> void:
+	if not _config_dialog_open:
+		return
+	_config_dialog_open = false
+	config_dimmer.visible = false
+	config_dialog.visible = false
+	if not _piece_dialog_open:
+		get_tree().paused = false
+		process_mode = Node.PROCESS_MODE_INHERIT
+
+
+func refresh_config_list(select_path: String = "") -> void:
+	if config_list == null:
+		return
+	_config_entries = CFG.list_configs()
+	config_list.clear()
+	var select_i := 0
+	for i in _config_entries.size():
+		var e: Dictionary = _config_entries[i]
+		config_list.add_item(str(e.label))
+		config_list.set_item_metadata(i, str(e.path))
+		if select_path != "" and str(e.path) == select_path:
+			select_i = i
+	if _config_entries.size() > 0:
+		config_list.select(select_i)
+
+
+func apply_selected_config() -> void:
+	if config_list == null or not config_list.is_anything_selected():
+		lbl_config_status.text = "Select a config file first."
+		return
+	var path := str(config_list.get_item_metadata(config_list.get_selected_items()[0]))
+	var err := CFG.apply_file(path)
+	if err != "":
+		lbl_config_status.text = err
+		game.last_message = err
+		return
+	game.apply_settings()
+	close_config_dialog()
+	_on_restart()
+	refresh_action_labels()
+	game.last_message = "Applied %s — match restarted." % path.get_file()
+	lbl_msg.text = game.last_message
 
 
 func piece_options_open() -> bool:
@@ -565,10 +739,10 @@ func _refresh_final_overlay() -> void:
 	var title := "VICTORY" if game.phase == game.Phase.VICTORY else "GAME OVER"
 	var res: String = game.match_result if game.match_result != "" else ("win" if game.phase == game.Phase.VICTORY else "loss")
 	lbl_final_body.text = (
-		"%s\n\nFinal score: %d\n(+%d from kills, +%d from waves)\nWaves reached: %d / %d\nResult: %s\n\nPress Leaderboard [L] or Restart."
+		"%s\n\nFinal score: %d\n(+%d from kills, +%d from waves)\nWaves reached: %d / %d\nResult: %s\n\nPress Leaderboard [%s] or Restart."
 		% [
 			title, game.score, game.score_from_kills, game.score_from_waves,
-			game.wave, game.MAX_WAVES, res.to_upper(),
+			game.wave, game.MAX_WAVES, res.to_upper(), CFG.key_label("leaderboard"),
 		]
 	)
 	overlay_final.visible = true
@@ -576,64 +750,73 @@ func _refresh_final_overlay() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.shift_pressed and not _piece_dialog_open:
-			var handled := true
-			match event.keycode:
-				KEY_S:
-					save_current_layout()
-				KEY_L:
-					load_selected_layout()
-				KEY_D:
-					toggle_default_layout()
-				KEY_X:
-					delete_selected_layout()
-				KEY_R:
-					_on_restart()
-				_:
-					handled = false
-			if handled:
+		if _config_dialog_open:
+			if CFG.matches_key(event, "cancel") or event.keycode == KEY_ENTER:
+				close_config_dialog()
+				get_viewport().set_input_as_handled()
+			return
+		if not _piece_dialog_open:
+			if CFG.matches_key(event, "layout_save"):
+				save_current_layout()
+				get_viewport().set_input_as_handled()
+				return
+			if CFG.matches_key(event, "layout_load"):
+				load_selected_layout()
+				get_viewport().set_input_as_handled()
+				return
+			if CFG.matches_key(event, "layout_default"):
+				toggle_default_layout()
+				get_viewport().set_input_as_handled()
+				return
+			if CFG.matches_key(event, "layout_delete"):
+				delete_selected_layout()
+				get_viewport().set_input_as_handled()
+				return
+			if CFG.matches_key(event, "restart"):
+				_on_restart()
 				get_viewport().set_input_as_handled()
 				return
 		if _piece_dialog_open:
-			match event.keycode:
-				KEY_ESCAPE, KEY_ENTER:
-					close_piece_options()
-					get_viewport().set_input_as_handled()
-				KEY_U:
-					_dialog_upgrade()
-					get_viewport().set_input_as_handled()
-				KEY_S, KEY_DELETE:
-					_dialog_sell()
-					get_viewport().set_input_as_handled()
-				KEY_C:
-					_dialog_castle()
-					get_viewport().set_input_as_handled()
+			if CFG.matches_key(event, "cancel") or CFG.matches_key(event, "start_wave_alt"):
+				close_piece_options()
+				get_viewport().set_input_as_handled()
+			elif CFG.matches_key(event, "upgrade"):
+				_dialog_upgrade()
+				get_viewport().set_input_as_handled()
+			elif CFG.matches_key(event, "sell") or CFG.matches_key(event, "sell_alt"):
+				_dialog_sell()
+				get_viewport().set_input_as_handled()
+			elif CFG.matches_key(event, "castle"):
+				_dialog_castle()
+				get_viewport().set_input_as_handled()
 			return
-		match event.keycode:
-			KEY_F:
-				_on_speed()
+		if CFG.matches_key(event, "config"):
+			open_config_dialog()
+			get_viewport().set_input_as_handled()
+		elif CFG.matches_key(event, "speed"):
+			_on_speed()
+			get_viewport().set_input_as_handled()
+		elif CFG.matches_key(event, "leaderboard"):
+			toggle_leaderboard()
+			get_viewport().set_input_as_handled()
+		elif CFG.matches_key(event, "cancel"):
+			if overlay_leaderboard.visible:
+				overlay_leaderboard.visible = false
 				get_viewport().set_input_as_handled()
-			KEY_L:
-				toggle_leaderboard()
+			else:
+				game.selected = Vector2i(-1, -1)
+				game.build_type = -1
 				get_viewport().set_input_as_handled()
-			KEY_ESCAPE:
-				if overlay_leaderboard.visible:
-					overlay_leaderboard.visible = false
-					get_viewport().set_input_as_handled()
-				else:
-					game.selected = Vector2i(-1, -1)
-					game.build_type = -1
-					get_viewport().set_input_as_handled()
-			KEY_U:
-				if game.get_piece(game.selected) != null:
-					open_piece_options(game.selected)
+		elif CFG.matches_key(event, "upgrade"):
+			if game.get_piece(game.selected) != null:
+				open_piece_options(game.selected)
+			get_viewport().set_input_as_handled()
+		elif CFG.matches_key(event, "sell") or CFG.matches_key(event, "sell_alt"):
+			if game.sell(game.selected):
 				get_viewport().set_input_as_handled()
-			KEY_S, KEY_DELETE:
-				if game.sell(game.selected):
-					get_viewport().set_input_as_handled()
-			KEY_C:
-				game.try_castle()
-				get_viewport().set_input_as_handled()
+		elif CFG.matches_key(event, "castle"):
+			game.try_castle()
+			get_viewport().set_input_as_handled()
 
 
 func _button(text: String) -> Button:

@@ -1,51 +1,94 @@
 extends RefCounted
-## Enemy mob types: stats, wave composition and drawing helpers.
+## Enemy mob types, wave table and stats — balance filled from config/game_data.json.
+## Drawing helpers stay here (vector shapes).
 
 enum { GRUNT, RUNNER, BRUTE, SAPPER, PROMOTED }
 
-const NAMES := {
+const ID_BY_NAME := {
+	"grunt": GRUNT, "runner": RUNNER, "brute": BRUTE, "sapper": SAPPER, "promoted": PROMOTED,
+}
+
+static var NAMES := {
 	GRUNT: "Grunt", RUNNER: "Runner", BRUTE: "Brute", SAPPER: "Sapper", PROMOTED: "Promoted",
 }
-const COLORS := {
+static var COLORS := {
 	GRUNT: Color(0.55, 0.05, 0.1),
 	RUNNER: Color(0.95, 0.45, 0.1),
 	BRUTE: Color(0.35, 0.05, 0.15),
 	SAPPER: Color(0.5, 0.15, 0.55),
 	PROMOTED: Color(0.82, 0.62, 0.12),
 }
+static var TYPE_DEFS := {}
+static var WAVE_DEFS: Array = []
+static var WAVE_TYPE_ORDER: Array = [GRUNT, RUNNER, BRUTE, SAPPER]
+static var HP_SCALE_PER_WAVE := 0.06
+static var WAVE_CLEAR_GOLD := {"base": 14, "per_wave": 3, "extra_after_wave": 3, "extra_per_wave": 1}
 
 
-## Gentle HP ramp: ~6% per wave, no post-wave-5 jump.
+static func apply_data(data: Dictionary) -> void:
+	var mobs: Dictionary = data.get("mobs", {})
+	HP_SCALE_PER_WAVE = float(mobs.get("hp_scale_per_wave", 0.06))
+	var wcg: Dictionary = mobs.get("wave_clear_gold", {})
+	WAVE_CLEAR_GOLD = {
+		"base": int(wcg.get("base", 14)),
+		"per_wave": int(wcg.get("per_wave", 3)),
+		"extra_after_wave": int(wcg.get("extra_after_wave", 3)),
+		"extra_per_wave": int(wcg.get("extra_per_wave", 1)),
+	}
+	var types: Dictionary = mobs.get("types", {})
+	NAMES = {}
+	COLORS = {}
+	TYPE_DEFS = {}
+	for key in ID_BY_NAME:
+		var t: int = ID_BY_NAME[key]
+		var d: Dictionary = types.get(key, {})
+		NAMES[t] = str(d.get("name", key.capitalize()))
+		COLORS[t] = _color(d.get("color", [0.7, 0.1, 0.1]))
+		TYPE_DEFS[t] = {
+			"hp": float(d.get("hp", 10.0)),
+			"speed": float(d.get("speed", 1.0)),
+			"speed_growth": float(d.get("speed_growth", 0.0)),
+			"damage": float(d.get("damage", 1.0)),
+			"damage_growth": float(d.get("damage_growth", 0.0)),
+			"reward": int(d.get("reward", 1)),
+			"reward_growth": float(d.get("reward_growth", 0.0)),
+			"wall_mult": float(d.get("wall_mult", 1.0)),
+			"prefers_walls": bool(d.get("prefers_walls", false)),
+			"kill_score": int(d.get("kill_score", 10)),
+		}
+	WAVE_TYPE_ORDER = []
+	for id in mobs.get("wave_type_order", ["grunt", "runner", "brute", "sapper"]):
+		var key := str(id).to_lower()
+		if ID_BY_NAME.has(key) and ID_BY_NAME[key] != PROMOTED:
+			WAVE_TYPE_ORDER.append(ID_BY_NAME[key])
+	if WAVE_TYPE_ORDER.is_empty():
+		WAVE_TYPE_ORDER = [GRUNT, RUNNER, BRUTE, SAPPER]
+	WAVE_DEFS = []
+	for w in mobs.get("waves", []):
+		if not (w is Dictionary):
+			continue
+		var row := {}
+		for key in w:
+			var k := str(key).to_lower()
+			if ID_BY_NAME.has(k):
+				row[ID_BY_NAME[k]] = int(w[key])
+		WAVE_DEFS.append(row)
+	if WAVE_DEFS.is_empty():
+		WAVE_DEFS = [{GRUNT: 6}]
+
+
+static func _color(v) -> Color:
+	if v is Color:
+		return v
+	if v is Array and v.size() >= 3:
+		var a := float(v[3]) if v.size() > 3 else 1.0
+		return Color(float(v[0]), float(v[1]), float(v[2]), a)
+	return Color(0.7, 0.1, 0.1)
+
+
 static func hp_scale_for_wave(wave: int) -> float:
 	var w: float = maxf(1.0, float(wave))
-	return 1.0 + 0.06 * (w - 1.0)
-
-
-## Data-driven 20-wave progression (counts per mob type).
-const WAVE_DEFS: Array = [
-	{GRUNT: 6},
-	{GRUNT: 4, RUNNER: 2},
-	{GRUNT: 5, RUNNER: 2},
-	{GRUNT: 4, RUNNER: 2, SAPPER: 1},
-	{GRUNT: 4, RUNNER: 2, BRUTE: 1, SAPPER: 1},
-	{GRUNT: 5, RUNNER: 2, BRUTE: 1, SAPPER: 1},
-	{GRUNT: 5, RUNNER: 3, BRUTE: 1, SAPPER: 1},
-	{GRUNT: 6, RUNNER: 2, BRUTE: 2, SAPPER: 1},
-	{GRUNT: 5, RUNNER: 3, BRUTE: 2, SAPPER: 1},
-	{GRUNT: 5, RUNNER: 3, BRUTE: 2, SAPPER: 2},
-	{GRUNT: 6, RUNNER: 3, BRUTE: 2, SAPPER: 2},
-	{GRUNT: 5, RUNNER: 4, BRUTE: 2, SAPPER: 2},
-	{GRUNT: 6, RUNNER: 3, BRUTE: 3, SAPPER: 2},
-	{GRUNT: 5, RUNNER: 4, BRUTE: 3, SAPPER: 2},
-	{GRUNT: 6, RUNNER: 4, BRUTE: 3, SAPPER: 3},
-	{GRUNT: 5, RUNNER: 4, BRUTE: 4, SAPPER: 3},
-	{GRUNT: 6, RUNNER: 4, BRUTE: 4, SAPPER: 3},
-	{GRUNT: 5, RUNNER: 5, BRUTE: 4, SAPPER: 3},
-	{GRUNT: 6, RUNNER: 4, BRUTE: 4, SAPPER: 4},
-	{GRUNT: 6, RUNNER: 4, BRUTE: 4, SAPPER: 4},
-]
-
-const WAVE_TYPE_ORDER := [GRUNT, RUNNER, BRUTE, SAPPER]
+	return 1.0 + HP_SCALE_PER_WAVE * (w - 1.0)
 
 
 static func wave_def(wave: int) -> Dictionary:
@@ -61,59 +104,27 @@ static func wave_mob_count(wave: int) -> int:
 
 
 static func wave_clear_bonus(wave: int) -> int:
-	return 14 + 3 * wave + maxi(0, wave - 3)
+	var base: int = int(WAVE_CLEAR_GOLD.base)
+	var per: int = int(WAVE_CLEAR_GOLD.per_wave)
+	var after: int = int(WAVE_CLEAR_GOLD.extra_after_wave)
+	var extra: int = int(WAVE_CLEAR_GOLD.extra_per_wave)
+	return base + per * wave + maxi(0, wave - after) * extra
 
 
 static func mob_stats(type: int, wave: int) -> Dictionary:
 	var w: float = maxf(1.0, float(wave))
 	var hp_scale: float = hp_scale_for_wave(wave)
-	match type:
-		GRUNT:
-			return {
-				"hp": 18.0 * hp_scale,
-				"speed": 1.0 + 0.04 * w,
-				"damage": 3.0 + 0.35 * w,
-				"reward": 6 + int(w * 1.2),
-				"wall_mult": 1.0,
-				"prefers_walls": false,
-			}
-		RUNNER:
-			return {
-				"hp": 10.0 * hp_scale,
-				"speed": 1.65 + 0.05 * w,
-				"damage": 2.0 + 0.2 * w,
-				"reward": 5 + int(w),
-				"wall_mult": 1.0,
-				"prefers_walls": false,
-			}
-		BRUTE:
-			return {
-				"hp": 38.0 * hp_scale,
-				"speed": 0.72 + 0.02 * w,
-				"damage": 7.0 + 0.55 * w,
-				"reward": 11 + int(w * 1.3),
-				"wall_mult": 1.6,
-				"prefers_walls": false,
-			}
-		SAPPER:
-			return {
-				"hp": 14.0 * hp_scale,
-				"speed": 0.95 + 0.03 * w,
-				"damage": 2.5 + 0.25 * w,
-				"reward": 7 + int(w),
-				"wall_mult": 2.2,
-				"prefers_walls": true,
-			}
-		PROMOTED:
-			return {
-				"hp": 34.0 * hp_scale,
-				"speed": 1.4 + 0.045 * w,
-				"damage": 6.5 + 0.5 * w,
-				"reward": 15 + int(w * 1.6),
-				"wall_mult": 1.3,
-				"prefers_walls": false,
-			}
-	return mob_stats(GRUNT, wave)
+	var d: Dictionary = TYPE_DEFS.get(type, TYPE_DEFS.get(GRUNT, {}))
+	if d.is_empty():
+		return {"hp": 10.0, "speed": 1.0, "damage": 1.0, "reward": 1, "wall_mult": 1.0, "prefers_walls": false}
+	return {
+		"hp": float(d.hp) * hp_scale,
+		"speed": float(d.speed) + float(d.speed_growth) * w,
+		"damage": float(d.damage) + float(d.damage_growth) * w,
+		"reward": int(d.reward) + int(float(d.reward_growth) * w),
+		"wall_mult": float(d.wall_mult),
+		"prefers_walls": bool(d.prefers_walls),
+	}
 
 
 ## Ordered list of mob types spawned for a given wave (interleaved mix).

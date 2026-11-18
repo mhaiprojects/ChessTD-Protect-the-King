@@ -9,6 +9,7 @@ const SC := preload("res://scripts/scoring.gd")
 const HS := preload("res://scripts/highscores.gd")
 const LS := preload("res://scripts/layouts.gd")
 const DA := preload("res://scripts/draw_art.gd")
+const CFG := preload("res://scripts/config.gd")
 const SIZE := Vector2i(8, 12)
 
 var passed := 0
@@ -16,16 +17,37 @@ var failed := 0
 
 
 func _initialize() -> void:
+	CFG.ensure_loaded()
 	_clear_hs_test_file()
 	HS.set_save_path(_hs_test_path())
 	LS.set_save_path(_ls_test_path())
 	_clear_ls_test_file()
+	_clear_user_configs()
 	await _run()
+	CFG.reload_defaults()
 	HS.reset_save_path()
 	_clear_hs_test_file()
 	_clear_ls_test_file()
 	LS.reset_save_path()
+	_clear_user_configs()
 	Engine.time_scale = 1.0
+
+
+func _user_config_dir() -> String:
+	return "user://configs"
+
+
+func _clear_user_configs() -> void:
+	var dir := DirAccess.open(_user_config_dir())
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var name := dir.get_next()
+	while name != "":
+		if not dir.current_is_dir() and name.begins_with("test_"):
+			dir.remove(name)
+		name = dir.get_next()
+	dir.list_dir_end()
 
 
 func _ls_test_path() -> String:
@@ -119,6 +141,10 @@ func _run() -> void:
 	await test_piece_options_dialog()
 	print("== Phase A: UI labels, keys, layouts ==")
 	await test_phase_a_ui()
+	print("== Phase B: config JSON loader ==")
+	test_config_loader()
+	print("== Phase B: config UI apply ==")
+	await test_config_ui()
 	print("\nRESULT: %d passed, %d failed" % [passed, failed])
 	quit(1 if failed > 0 else 0)
 
@@ -971,3 +997,106 @@ func test_phase_a_ui() -> void:
 	scene.queue_free()
 	await process_frame
 	_clear_ls_test_file()
+
+
+func test_config_loader() -> void:
+	CFG.reload_defaults()
+	check(FileAccess.file_exists(CFG.GAME_DATA_PATH), "Bundled game_data.json exists")
+	check(FileAccess.file_exists(CFG.SETTINGS_PATH), "Bundled settings.json exists")
+	check(CFG.game_data.get("schema", "") == "game_data", "game_data schema tag")
+	check(CFG.settings.get("schema", "") == "settings", "settings schema tag")
+	check(P.COST[P.PAWN] == 20 and P.COST[P.WALL] == 100 and P.COST[P.QUEEN] == 120, "Piece costs loaded from JSON")
+	check(P.MAX_LEVEL == 5 and is_equal_approx(P.SYNERGY[P.KNIGHT].spd, 0.12), "Max level and synergy from JSON")
+	check(M.WAVE_DEFS.size() == 20 and M.wave_mob_count(1) == 6, "Wave table loaded from JSON")
+	check(SC.KILL_BASE[M.PROMOTED] == 32 and SC.wave_clear_points(1) == 26, "Scoring loaded from JSON")
+	check(CFG.start_gold() == 200 and CFG.max_waves() == 20, "Match settings from JSON")
+	check(CFG.speed_options().size() == 5 and float(CFG.speed_options()[4]) == 10.0, "Speed options from JSON")
+	check(CFG.key_label("config") == "O" and CFG.key_label("speed") == "F", "Keybindings from JSON")
+	var listed := CFG.list_configs()
+	var paths: Array = []
+	for e in listed:
+		paths.append(e.path)
+	check(paths.has(CFG.GAME_DATA_PATH) and paths.has(CFG.SETTINGS_PATH), "list_configs includes bundled files")
+	# Invalid JSON falls back / rejects without corrupting tables.
+	var bad_path := "user://configs/test_bad.json"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://configs"))
+	var bf := FileAccess.open(bad_path, FileAccess.WRITE)
+	bf.store_string("{not json")
+	bf.close()
+	var err := CFG.apply_file(bad_path)
+	check(err != "", "Invalid JSON apply returns error")
+	check(P.COST[P.PAWN] == 20, "Invalid apply leaves piece costs intact")
+	# Valid user game_data override changes a value, then restore defaults.
+	var custom := CFG.game_data.duplicate(true)
+	custom.pieces.defs.pawn.cost = 33
+	var good_path := "user://configs/test_pawn33.json"
+	var gf := FileAccess.open(good_path, FileAccess.WRITE)
+	gf.store_string(JSON.stringify(custom, "\t"))
+	gf.close()
+	check(CFG.apply_file(good_path) == "" and P.COST[P.PAWN] == 33, "User game_data apply changes pawn cost")
+	var g = new_game()
+	check(g.START_GOLD == 200 and g.gold == 200, "Game reads start gold from settings")
+	check(g.SPEED_OPTIONS.size() == 5, "Game speed options from settings")
+	g.free()
+	# Settings override: starting gold.
+	var st := CFG.settings.duplicate(true)
+	st["match"]["start_gold"] = 350
+	var st_path := "user://configs/test_gold350.json"
+	var sf := FileAccess.open(st_path, FileAccess.WRITE)
+	sf.store_string(JSON.stringify(st, "\t"))
+	sf.close()
+	check(CFG.apply_file(st_path) == "", "User settings apply ok")
+	var g2 = new_game()
+	check(g2.START_GOLD == 350 and g2.gold == 350, "Custom start gold applied on the fly")
+	g2.free()
+	CFG.reload_defaults()
+	check(P.COST[P.PAWN] == 20 and CFG.start_gold() == 200, "reload_defaults restores bundled values")
+	# Reject unrecognized schema.
+	var junk_path := "user://configs/test_junk.json"
+	var jf := FileAccess.open(junk_path, FileAccess.WRITE)
+	jf.store_string("{\"schema\":\"nope\",\"hello\":1}")
+	jf.close()
+	check(CFG.apply_file(junk_path) != "", "Unrecognized schema rejected")
+	_clear_user_configs()
+
+
+func test_config_ui() -> void:
+	CFG.reload_defaults()
+	_clear_user_configs()
+	var custom := CFG.game_data.duplicate(true)
+	custom.pieces.defs.wall.cost = 77
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://configs"))
+	var path := "user://configs/test_wall77.json"
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify(custom, "\t"))
+	f.close()
+	var scene = load("res://scenes/main.tscn").instantiate()
+	root.add_child(scene)
+	await process_frame
+	var g = scene.get_node("Game")
+	var ui = scene.get_node("UI")
+	check(ui.btn_config != null and ui.btn_config.text == "Config [O]", "Config button shows [O]")
+	ui.open_config_dialog()
+	check(ui._config_dialog_open and ui.config_list.item_count >= 3, "Config dialog lists bundled + user files")
+	var found := -1
+	for i in ui.config_list.item_count:
+		if str(ui.config_list.get_item_metadata(i)) == path:
+			found = i
+			break
+	check(found >= 0, "User config appears in list")
+	ui.config_list.select(found)
+	ui.apply_selected_config()
+	await process_frame
+	check(not ui._config_dialog_open, "Apply closes config dialog")
+	check(P.COST[P.WALL] == 77 and ui.build_buttons[P.WALL].text.ends_with("77g"), "Apply updates wall cost and button")
+	check(g.phase == g.Phase.SETUP and g.gold == g.START_GOLD, "Apply restarts the match")
+	var key := InputEventKey.new()
+	key.pressed = true
+	key.keycode = KEY_O
+	ui._unhandled_input(key)
+	check(ui._config_dialog_open, "O opens config dialog")
+	ui.close_config_dialog()
+	scene.queue_free()
+	await process_frame
+	CFG.reload_defaults()
+	_clear_user_configs()

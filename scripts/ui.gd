@@ -25,6 +25,8 @@ var btn_dialog_castle: Button
 var btn_dialog_close: Button
 var btn_leaderboard: Button
 var btn_speed: Button
+var btn_settings: Button
+var btn_settings_close: Button
 var btn_config: Button
 var layout_select: OptionButton
 var btn_layout_save: Button
@@ -52,6 +54,9 @@ var btn_config_close: Button
 var lbl_config_status: Label
 var _config_dialog_open := false
 var _config_entries: Array = []
+var settings_dimmer: ColorRect
+var settings_dialog: PanelContainer
+var _settings_dialog_open := false
 
 
 func _ready() -> void:
@@ -126,23 +131,12 @@ func _build_responsive_shell() -> void:
 	btn_speed = _button(speed_button_text())
 	btn_speed.pressed.connect(_on_speed)
 	v.add_child(btn_speed)
-	btn_config = _button(config_button_text())
-	btn_config.pressed.connect(open_config_dialog)
-	v.add_child(btn_config)
-	v.add_child(HSeparator.new())
-	_build_layout_section(v)
-	v.add_child(HSeparator.new())
+	btn_settings = _button(settings_button_text())
+	btn_settings.pressed.connect(toggle_settings_dialog)
+	v.add_child(btn_settings)
 	lbl_msg = _label("", 13)
 	lbl_msg.add_theme_color_override("font_color", Color(0.98, 0.86, 0.52))
 	v.add_child(lbl_msg)
-	lbl_help = _label(str(ui_cfg.get("help_text", "")), 11, false, DA.UI_TEXT_DIM)
-	v.add_child(lbl_help)
-	btn_leaderboard = _button(leaderboard_button_text())
-	btn_leaderboard.pressed.connect(toggle_leaderboard)
-	v.add_child(btn_leaderboard)
-	btn_restart = _button(restart_button_text())
-	btn_restart.pressed.connect(_on_restart)
-	v.add_child(btn_restart)
 
 	overlay_final = _overlay_panel()
 	overlay_final.z_index = 5
@@ -155,6 +149,7 @@ func _build_responsive_shell() -> void:
 	overlay_leaderboard.get_child(0).add_child(lb_close)
 
 	_build_piece_dialog()
+	_build_settings_dialog()
 	_build_config_dialog()
 
 	get_viewport().size_changed.connect(_refresh_layout)
@@ -178,6 +173,10 @@ func config_button_text() -> String:
 	return "Config [%s]" % CFG.key_label("config")
 
 
+func settings_button_text() -> String:
+	return "Settings [%s]" % CFG.key_label("settings")
+
+
 func leaderboard_button_text() -> String:
 	return "Leaderboard [%s]" % CFG.key_label("leaderboard")
 
@@ -191,6 +190,8 @@ func refresh_action_labels() -> void:
 		btn_start.text = start_button_text()
 	if btn_speed != null:
 		btn_speed.text = speed_button_text()
+	if btn_settings != null:
+		btn_settings.text = settings_button_text()
 	if btn_config != null:
 		btn_config.text = config_button_text()
 	if btn_leaderboard != null:
@@ -324,6 +325,99 @@ func _load_default_layout() -> void:
 		game.last_message = "Default layout '%s' loaded. %s" % [LS.get_default(), game.last_message]
 
 
+func _any_modal_pause_dialog() -> bool:
+	return _piece_dialog_open or _settings_dialog_open or _config_dialog_open
+
+
+func _sync_game_pause_from_modals() -> void:
+	if _any_modal_pause_dialog():
+		get_tree().paused = true
+		process_mode = Node.PROCESS_MODE_ALWAYS
+	else:
+		get_tree().paused = false
+		process_mode = Node.PROCESS_MODE_INHERIT
+
+
+func settings_dialog_open() -> bool:
+	return _settings_dialog_open
+
+
+func open_settings_dialog() -> void:
+	close_piece_options()
+	_settings_dialog_open = true
+	settings_dimmer.visible = true
+	settings_dialog.visible = true
+	_sync_game_pause_from_modals()
+	_refresh_layout()
+
+
+func close_settings_dialog() -> void:
+	if not _settings_dialog_open:
+		return
+	_settings_dialog_open = false
+	settings_dimmer.visible = false
+	settings_dialog.visible = false
+	_sync_game_pause_from_modals()
+
+
+func toggle_settings_dialog() -> void:
+	if _settings_dialog_open:
+		close_settings_dialog()
+	else:
+		open_settings_dialog()
+
+
+func _build_settings_dialog() -> void:
+	settings_dimmer = ColorRect.new()
+	settings_dimmer.color = Color(0.04, 0.05, 0.07, 0.62)
+	settings_dimmer.visible = false
+	settings_dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
+	settings_dimmer.z_index = 8
+	add_child(settings_dimmer)
+
+	settings_dialog = PanelContainer.new()
+	settings_dialog.visible = false
+	settings_dialog.mouse_filter = Control.MOUSE_FILTER_STOP
+	settings_dialog.z_index = 9
+	var dlg_style: StyleBoxFlat = _ui_styles.panel.duplicate()
+	dlg_style.bg_color = Color(0.08, 0.09, 0.12, 0.97)
+	dlg_style.set_border_width_all(2)
+	dlg_style.border_color = DA.UI_BORDER
+	settings_dialog.add_theme_stylebox_override("panel", dlg_style)
+	add_child(settings_dialog)
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.mouse_filter = Control.MOUSE_FILTER_PASS
+	settings_dialog.add_child(scroll)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(box)
+
+	box.add_child(_label("Settings", 17, true))
+	btn_config = _button(config_button_text())
+	btn_config.pressed.connect(open_config_dialog)
+	box.add_child(btn_config)
+	box.add_child(HSeparator.new())
+	_build_layout_section(box)
+	box.add_child(HSeparator.new())
+	var ui_cfg: Dictionary = CFG.settings.get("ui", {})
+	lbl_help = _label(str(ui_cfg.get("help_text", "")), 11, false, DA.UI_TEXT_DIM)
+	box.add_child(lbl_help)
+	btn_leaderboard = _button(leaderboard_button_text())
+	btn_leaderboard.pressed.connect(toggle_leaderboard)
+	box.add_child(btn_leaderboard)
+	btn_restart = _button(restart_button_text())
+	btn_restart.pressed.connect(_on_restart)
+	box.add_child(btn_restart)
+	btn_settings_close = _button("Close [%s]" % CFG.key_label("cancel"))
+	btn_settings_close.pressed.connect(close_settings_dialog)
+	box.add_child(btn_settings_close)
+
+
 func _build_piece_dialog() -> void:
 	piece_dimmer = ColorRect.new()
 	piece_dimmer.color = Color(0.04, 0.05, 0.07, 0.62)
@@ -432,6 +526,13 @@ func _position_piece_dialog(vp: Rect2) -> void:
 	piece_dialog.custom_minimum_size = dlg_sz
 	piece_dialog.size = dlg_sz
 	piece_dialog.position = (vp.size - dlg_sz) * 0.5
+	if settings_dimmer != null:
+		settings_dimmer.position = Vector2.ZERO
+		settings_dimmer.size = vp.size
+		var st_sz := Vector2(minf(420, vp.size.x * 0.92), minf(560, vp.size.y * 0.88))
+		settings_dialog.custom_minimum_size = st_sz
+		settings_dialog.size = st_sz
+		settings_dialog.position = (vp.size - st_sz) * 0.5
 	if config_dimmer != null:
 		config_dimmer.position = Vector2.ZERO
 		config_dimmer.size = vp.size
@@ -446,13 +547,13 @@ func _build_config_dialog() -> void:
 	config_dimmer.color = Color(0.04, 0.05, 0.07, 0.62)
 	config_dimmer.visible = false
 	config_dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
-	config_dimmer.z_index = 8
+	config_dimmer.z_index = 10
 	add_child(config_dimmer)
 
 	config_dialog = PanelContainer.new()
 	config_dialog.visible = false
 	config_dialog.mouse_filter = Control.MOUSE_FILTER_STOP
-	config_dialog.z_index = 9
+	config_dialog.z_index = 11
 	var dlg_style: StyleBoxFlat = _ui_styles.panel.duplicate()
 	dlg_style.bg_color = Color(0.08, 0.09, 0.12, 0.97)
 	dlg_style.set_border_width_all(2)
@@ -488,8 +589,7 @@ func open_config_dialog() -> void:
 	_config_dialog_open = true
 	config_dimmer.visible = true
 	config_dialog.visible = true
-	get_tree().paused = true
-	process_mode = Node.PROCESS_MODE_ALWAYS
+	_sync_game_pause_from_modals()
 	refresh_config_list()
 	lbl_config_status.text = "Active game data: %s\nActive settings: %s" % [
 		CFG.active_game_data_path.get_file(), CFG.active_settings_path.get_file(),
@@ -503,9 +603,7 @@ func close_config_dialog() -> void:
 	_config_dialog_open = false
 	config_dimmer.visible = false
 	config_dialog.visible = false
-	if not _piece_dialog_open:
-		get_tree().paused = false
-		process_mode = Node.PROCESS_MODE_INHERIT
+	_sync_game_pause_from_modals()
 
 
 func refresh_config_list(select_path: String = "") -> void:
@@ -554,8 +652,7 @@ func open_piece_options(c: Vector2i) -> void:
 	_piece_dialog_open = true
 	piece_dimmer.visible = true
 	piece_dialog.visible = true
-	get_tree().paused = true
-	process_mode = Node.PROCESS_MODE_ALWAYS
+	_sync_game_pause_from_modals()
 	_refresh_piece_dialog()
 
 
@@ -565,8 +662,7 @@ func close_piece_options() -> void:
 	_piece_dialog_open = false
 	piece_dimmer.visible = false
 	piece_dialog.visible = false
-	get_tree().paused = false
-	process_mode = Node.PROCESS_MODE_INHERIT
+	_sync_game_pause_from_modals()
 
 
 func _refresh_piece_dialog() -> void:
@@ -718,6 +814,7 @@ func _on_restart() -> void:
 
 func toggle_leaderboard() -> void:
 	overlay_leaderboard.visible = not overlay_leaderboard.visible
+	overlay_leaderboard.z_index = 12 if overlay_leaderboard.visible else 4
 	if overlay_leaderboard.visible:
 		_refresh_leaderboard_text()
 
@@ -790,7 +887,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				_dialog_castle()
 				get_viewport().set_input_as_handled()
 			return
-		if CFG.matches_key(event, "config"):
+		if CFG.matches_key(event, "settings"):
+			toggle_settings_dialog()
+			get_viewport().set_input_as_handled()
+		elif CFG.matches_key(event, "config"):
 			open_config_dialog()
 			get_viewport().set_input_as_handled()
 		elif CFG.matches_key(event, "speed"):
@@ -802,6 +902,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif CFG.matches_key(event, "cancel"):
 			if overlay_leaderboard.visible:
 				overlay_leaderboard.visible = false
+				get_viewport().set_input_as_handled()
+			elif _settings_dialog_open:
+				close_settings_dialog()
 				get_viewport().set_input_as_handled()
 			else:
 				game.selected = Vector2i(-1, -1)
@@ -859,6 +962,7 @@ func _process(_delta: float) -> void:
 		_end_overlay_shown = true
 		_refresh_final_overlay()
 		overlay_leaderboard.visible = true
+		overlay_leaderboard.z_index = 12
 		_refresh_leaderboard_text()
 	for t in build_buttons:
 		var b: Button = build_buttons[t]

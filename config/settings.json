@@ -40,6 +40,7 @@
 		"castle": "C",
 		"cancel": "Escape",
 		"speed": "F",
+		"settings": "G",
 		"leaderboard": "L",
 		"config": "O",
 		"layout_save": "Shift+S",
